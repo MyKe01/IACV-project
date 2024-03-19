@@ -99,15 +99,16 @@ plt.show()
 """
 import argparse
 
+# Section considered if the script main.py is run with arguments in the Terminal, EXAMPLE: $user: main.py --input videotitle.mp4
 parser = argparse.ArgumentParser()
 parser.add_argument('--input', help='Path to image or video. Skip to capture frames from camera')
 parser.add_argument('--thr', default=0.1, type=float, help='Threshold value for pose parts heat map')
-parser.add_argument('--width', default=600, type=int, help='Resize input to specific width.')
-parser.add_argument('--height', default=600, type=int, help='Resize input to specific height.')
+parser.add_argument('--width', default=1720, type=int, help='Resize input to specific width.')
+parser.add_argument('--height', default=550, type=int, help='Resize input to specific height.')
 
 args = parser.parse_args()
 
-
+# Parts and pairs evaluated by the Deep Learning Human pose model
 BODY_PARTS = { "Nose": 0, "Neck": 1, "RShoulder": 2, "RElbow": 3, "RWrist": 4,
                "LShoulder": 5, "LElbow": 6, "LWrist": 7, "RHip": 8, "RKnee": 9,
                "RAnkle": 10, "LHip": 11, "LKnee": 12, "LAnkle": 13, "REye": 14,
@@ -119,28 +120,39 @@ POSE_PAIRS = [ ["Neck", "RShoulder"], ["Neck", "LShoulder"], ["RShoulder", "RElb
                ["LHip", "LKnee"], ["LKnee", "LAnkle"], ["Neck", "Nose"], ["Nose", "REye"],
                ["REye", "REar"], ["Nose", "LEye"], ["LEye", "LEar"] ]
 
-inWidth = args.width
-inHeight = args.height
+# Input dimensions (A is Sinner's evaluation frame (Bottom), B is Medviev's one (Top))
+#inWidth = args.width
+#inHeight = args.height
+inWidth_A = 1720
+inHeight_A = 550
+inWidth_B = 890
+inHeight_B = 365
 
+# Loading of the Deep Learning Model to estimate the pose
 net = cv2.dnn.readNetFromTensorflow("resources/pose_model.pb")
 
+# Loading of the clip to analyze
 cap = cv2.VideoCapture("resources/tennisMatchShort.mp4")
 
+# Allocation to write the resulting evaluation in a video file at the end
 result = cv2.VideoWriter('result.mp4',  
                          cv2.VideoWriter_fourcc(*'mp4v'), 
-                         10, (1280, 720))
+                         10, (1920, 1080))
 
+# PROCESSING LOOP
 while cv2.waitKey(1) < 0:
     hasFrame, frame = cap.read()
     if not hasFrame:
-        cv2.waitKey()
+        #cv2.waitKey()
         break
-
-    cropped_frame = frame[530:1080, 20:1740]
-    frameWidth = cropped_frame.shape[1]
-    frameHeight = cropped_frame.shape[0]
     
-    net.setInput(cv2.dnn.blobFromImage(cropped_frame, 1.0, (inWidth, inHeight), (127.5, 127.5, 127.5), swapRB=True, crop=False))
+    ################################### BOTTOM DETECTION ##################################################
+    # Refer to "TOP DETECTION" under this section to see the comments on how the parts are detected
+    cropped_frame_A = frame[530:1080, 20:1740]
+    frameWidth = cropped_frame_A.shape[1]
+    frameHeight = cropped_frame_A.shape[0]
+    
+    net.setInput(cv2.dnn.blobFromImage(cropped_frame_A, 1.0, (inWidth_A, inHeight_A), (127.5, 127.5, 127.5), swapRB=True, crop=False))
     out = net.forward()
     out = out[:, :19, :, :]  # MobileNet output [1, 57, -1, -1], we only need the first 19 elements
 
@@ -170,13 +182,58 @@ while cv2.waitKey(1) < 0:
         idTo = BODY_PARTS[partTo]
 
         if points[idFrom] and points[idTo]:
-            cv2.line(cropped_frame, points[idFrom], points[idTo], (0, 255, 0), 3)
-            cv2.ellipse(cropped_frame, points[idFrom], (3, 3), 0, 0, 360, (0, 0, 255), cv2.FILLED)
-            cv2.ellipse(cropped_frame, points[idTo], (3, 3), 0, 0, 360, (0, 0, 255), cv2.FILLED)
+            cv2.line(cropped_frame_A, points[idFrom], points[idTo], (0, 255, 0), 3)
+            cv2.ellipse(cropped_frame_A, points[idFrom], (3, 3), 0, 0, 360, (0, 0, 255), cv2.FILLED)
+            cv2.ellipse(cropped_frame_A, points[idTo], (3, 3), 0, 0, 360, (0, 0, 255), cv2.FILLED)
+    ####################################################################################################
+    ################################### TOP DETECTION ##################################################
+    cropped_frame_B = frame[20:385, 510:1400]
+    frameWidth = cropped_frame_B.shape[1]
+    frameHeight = cropped_frame_B.shape[0]
+    
+    # Set frame to analyze with the model
+    net.setInput(cv2.dnn.blobFromImage(cropped_frame_B, 1.0, (inWidth_B, inHeight_B), (127.5, 127.5, 200), swapRB=True, crop=False))
+    out = net.forward() # Evaluation by the net
+    out = out[:, :19, :, :]  # MobileNet output [1, 57, -1, -1], we only need the first 19 elements
+
+    assert(len(BODY_PARTS) == out.shape[1])
+
+    points = []
+    for i in range(len(BODY_PARTS)):
+        # Slice heatmap of corresponging body's part.
+        heatMap = out[0, i, :, :]
+
+        # Originally, we try to find all the local maximums. To simplify a sample
+        # we just find a global one. However only a single pose at the same time
+        # could be detected this way.
+        _, conf, _, point = cv2.minMaxLoc(heatMap) # The detection looks at the maximum probability distribution for the considered body part
+        x = (frameWidth * point[0]) / out.shape[3]
+        y = (frameHeight * point[1]) / out.shape[2]
+        # Add a point if it's confidence is higher than threshold.
+        points.append((int(x), int(y)) if conf > 0.2 else None) # IF CONFIDENCE INTERVAL IS ABOVE 0.2, THE SPECIFIC POINT IS CONSIDERED AS DETECTED (0.2 was imposed by me as the best-looking so far)
+
+    for pair in POSE_PAIRS:
+        partFrom = pair[0]
+        partTo = pair[1]
+        assert(partFrom in BODY_PARTS)
+        assert(partTo in BODY_PARTS)
+
+        idFrom = BODY_PARTS[partFrom]
+        idTo = BODY_PARTS[partTo]
+
+        if points[idFrom] and points[idTo]:
+            cv2.line(cropped_frame_B, points[idFrom], points[idTo], (0, 255, 0), 3)
+            cv2.ellipse(cropped_frame_B, points[idFrom], (3, 3), 0, 0, 360, (0, 0, 255), cv2.FILLED)
+            cv2.ellipse(cropped_frame_B, points[idTo], (3, 3), 0, 0, 360, (0, 0, 255), cv2.FILLED)
+    ######################################################################################################
 
     t, _ = net.getPerfProfile()
     freq = cv2.getTickFrequency() / 1000
-    frame[530:1080, 20:1740] = cropped_frame
+
+    # Overlapping of processed sections to the main video frame
+    frame[530:1080, 20:1740] = cropped_frame_A
+    frame[20:385, 510:1400] = cropped_frame_B
+
     cv2.putText(frame, '%.2fms' % (t / freq), (10, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0))
     cv2.imshow('Tennis Human Pose estimation through OpenCV', frame)
     result.write(frame)
@@ -187,7 +244,3 @@ result.release()
 cv2.destroyAllWindows() 
    
 print("The video was successfully saved") 
-""""""
-20-530
-1740-1080
-""""""
