@@ -124,7 +124,7 @@ inHeight = args.height
 
 net = cv2.dnn.readNetFromTensorflow("resources/pose_model.pb")
 
-cap = cv2.VideoCapture("resources/test3.mp4")
+cap = cv2.VideoCapture("resources/tennisMatchShort.mp4")
 
 result = cv2.VideoWriter('result.mp4',  
                          cv2.VideoWriter_fourcc(*'mp4v'), 
@@ -136,10 +136,11 @@ while cv2.waitKey(1) < 0:
         cv2.waitKey()
         break
 
-    frameWidth = frame.shape[1]
-    frameHeight = frame.shape[0]
+    cropped_frame = frame[530:1080, 20:1740]
+    frameWidth = cropped_frame.shape[1]
+    frameHeight = cropped_frame.shape[0]
     
-    net.setInput(cv2.dnn.blobFromImage(frame, 1.0, (inWidth, inHeight), (127.5, 127.5, 127.5), swapRB=True, crop=False))
+    net.setInput(cv2.dnn.blobFromImage(cropped_frame, 1.0, (inWidth, inHeight), (127.5, 127.5, 127.5), swapRB=True, crop=False))
     out = net.forward()
     out = out[:, :19, :, :]  # MobileNet output [1, 57, -1, -1], we only need the first 19 elements
 
@@ -169,15 +170,15 @@ while cv2.waitKey(1) < 0:
         idTo = BODY_PARTS[partTo]
 
         if points[idFrom] and points[idTo]:
-            cv2.line(frame, points[idFrom], points[idTo], (0, 255, 0), 3)
-            cv2.ellipse(frame, points[idFrom], (3, 3), 0, 0, 360, (0, 0, 255), cv2.FILLED)
-            cv2.ellipse(frame, points[idTo], (3, 3), 0, 0, 360, (0, 0, 255), cv2.FILLED)
+            cv2.line(cropped_frame, points[idFrom], points[idTo], (0, 255, 0), 3)
+            cv2.ellipse(cropped_frame, points[idFrom], (3, 3), 0, 0, 360, (0, 0, 255), cv2.FILLED)
+            cv2.ellipse(cropped_frame, points[idTo], (3, 3), 0, 0, 360, (0, 0, 255), cv2.FILLED)
 
     t, _ = net.getPerfProfile()
     freq = cv2.getTickFrequency() / 1000
+    frame[530:1080, 20:1740] = cropped_frame
     cv2.putText(frame, '%.2fms' % (t / freq), (10, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0))
-
-    cv2.imshow('OpenPose using OpenCV', frame)
+    cv2.imshow('Tennis Human Pose estimation through OpenCV', frame)
     result.write(frame)
 cap.release() 
 result.release() 
@@ -186,3 +187,7 @@ result.release()
 cv2.destroyAllWindows() 
    
 print("The video was successfully saved") 
+""""""
+20-530
+1740-1080
+""""""
