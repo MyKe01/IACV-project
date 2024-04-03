@@ -247,46 +247,52 @@ while cv2.waitKey(1) < 0:
             #print("Original point (PleftA):", PleftA)
             #print("Transformed point (PleftA_image):", PleftA_image)
          
-            if PleftA is None:   # Attempt to avoid the "TypeError: 'NoneType' object is not subscriptable" => unsuccessful 
-                PleftA = (0,0)   
+        if PleftA is None:                                                                                                                       # Avoid the "TypeError: 'NoneType' object is not subscriptable" => successful 
+            PleftA = (0,0)   
     
     # Right ankle coordinates display in region A
-    for idx in [10]:                                                                                                                                 # I've left the for loop because I thought we might also use the knee position if the ankle is not available (but I've abandonded that, for now. Also the knees might not be detected, but I thought about it as a slight countermeasure)
+    for idx in [10]:                                                                                                                             # I've left the for loop because I thought we might also use the knee position if the ankle is not available (but I've abandonded that, for now. Also the knees might not be detected, but I thought about it as a slight countermeasure)
         if pointsA[idx]:
             
-            PrightA = pointsA[idx]                                                                                                                   # Current image coordinates of the right ankle
-            cv2.circle(cropped_frame_A, PrightA, 5, (255, 0, 0), -1)                                                                                 # Blue circle to highlight the right ankle position
-            PrightA_image = cv2.perspectiveTransform(np.array([[PrightA]], dtype=np.float32), homography_matrix_inv)[0][0]                           # Computation of the field coordinates of the right ankle using H^(-1)   (I believe the values are not correct, so modifications are needed)
-            PrightA_image = (round(PrightA_image[0]),round(PrightA_image[1]))                                                                        # Approximation to avoid displaying all the decimals
-            cv2.putText(cropped_frame_A, f"{PrightA_image}", (PrightA[0] + 10, PrightA[1]), font, font_scale, color, thickness, cv2.LINE_AA)         # Display of the right foot field coordinates values at image coordinates, with slight offset on the X axis to avoid overlapping with the actual foot
+            PrightA = pointsA[idx]                                                                                                               # Current image coordinates of the right ankle
+            cv2.circle(cropped_frame_A, PrightA, 5, (255, 0, 0), -1)                                                                             # Blue circle to highlight the right ankle position
+            PrightA_image = cv2.perspectiveTransform(np.array([[PrightA]], dtype=np.float32), homography_matrix_inv)[0][0]                       # Computation of the field coordinates of the right ankle using H^(-1)   (I believe the values are not correct, so modifications are needed)
+            PrightA_image = (round(PrightA_image[0]),round(PrightA_image[1]))                                                                    # Approximation to avoid displaying all the decimals
+            cv2.putText(cropped_frame_A, f"{PrightA_image}", (PrightA[0] + 10, PrightA[1]), font, font_scale, color, thickness, cv2.LINE_AA)     # Display of the right foot field coordinates values at image coordinates, with slight offset on the X axis to avoid overlapping with the actual foot
             
-        if  PrightA is None:     # Attempt to avoid the "TypeError: 'NoneType' object is not subscriptable" => unsuccessful
+        if  PrightA is None:                                                                                                                     # Avoid the "TypeError: 'NoneType' object is not subscriptable" => successful
             PrightA = (0,0)
  
         # Check if the player's position in region A has changed compared to the previous frame
-        elif prev_PleftA_image is not None and prev_PrightA_image is not None:
+    if prev_PleftA_image is not None and prev_PrightA_image is not None:
                 
-            left_foot_moved_A = np.linalg.norm(np.array(PleftA_image) - np.array(prev_PleftA_image)) > threshold_moving                               # Euclidean distance computation between the current Left foot position and its position in the previous frame, all compared to the chosen threshold 
-            right_foot_moved_A = np.linalg.norm(np.array(PrightA_image) - np.array(prev_PrightA_image)) > threshold_moving                            # Euclidean distance computation between the current Right foot position and its position in the previous frame, all compared to the chosen threshold                
+        left_foot_moved_A = np.linalg.norm(np.array(PleftA_image) - np.array(prev_PleftA_image)) > threshold_moving                              # Euclidean distance computation between the current Left foot position and its position in the previous frame, all compared to the chosen threshold 
+        right_foot_moved_A = np.linalg.norm(np.array(PrightA_image) - np.array(prev_PrightA_image)) > threshold_moving                           # Euclidean distance computation between the current Right foot position and its position in the previous frame, all compared to the chosen threshold                
 
-        if left_foot_moved_A or right_foot_moved_A:                                                                                                   # Check if one foot has moved 
-
-            cv2.putText(cropped_frame_A, f"Moving", (PleftA[0]-30, PleftA[1]+40), font, font_scale, color, thickness, cv2.LINE_AA)                    # Display "Moving" under the player's feet using the image coordinates of the left foot with an offset
-            prev_PleftA_image = PleftA_image                                                                                                          # Update the values of the field coordinates of the feet from the previous frame  with the current ones
-            prev_PrightA_image = PrightA_image
-
-        elif left_foot_moved_A == False and right_foot_moved_A == False:                                                                              # Check if neither the left and the right foot has moved
-
-            cv2.putText(cropped_frame_A, f"Static", (PleftA[0]-30, PleftA[1]+40), font, font_scale, color, thickness, cv2.LINE_AA)                    # Display "Static" under the player's feet using the image coordinates of the left foot with an offset
-            prev_PleftA_image = PleftA_image                                                                                                          # Update the values of the field coordinates of the feet from the previous frame  with the current ones
-            prev_PrightA_image = PrightA_image
-
-        else:
-            
-            prev_PleftA_image = prev_PleftA_image                                                                                                      # Keep the values of the field coordinates of the feet from the previous frame 
-            prev_PrightA_image = prev_PrightA_image
+        if PleftA !=(0,0):                                                                                                                                # Check if the left ankle's point has been detected 
+            if left_foot_moved_A:                                                                                                                         # Check if the left foot has moved 
+                cv2.putText(cropped_frame_A, f"(LFoot) Moving", (PleftA[0]-60, PleftA[1]+70), font, font_scale, color, thickness, cv2.LINE_AA)            # Display "(LFoot) Moving" under the player's left foot using the image coordinates of the left foot with an offset  
         
+            else:
+                cv2.putText(cropped_frame_A, f"(LFoot) Static", (PleftA[0]-60, PleftA[1]+70), font, font_scale, color, thickness, cv2.LINE_AA)            # Display "(LFoot) Static" under the player's left foot using the image coordinates of the left foot with an offset  
         
+        if PrightA!=(0,0):                                                                                                                                # Check if the right ankle's point has been detected
+            if  right_foot_moved_A:                                                                                                                       # Check if the right foot has moved            
+                cv2.putText(cropped_frame_A, f"(RFoot) Moving", (PrightA[0]+60, PrightA[1]+40), font, font_scale, color, thickness, cv2.LINE_AA)          # Display "(RFoot) Moving" under the player's right foot using the image coordinates of the left foot with an offset  
+       
+            else:                         
+                cv2.putText(cropped_frame_A, f"(RFoot) Static", (PrightA[0]+60, PrightA[1]+40), font, font_scale, color, thickness, cv2.LINE_AA)          # Display "(RFoot) Static" under the player's right foot using the image coordinates of the right foot with an offset
+
+        prev_PleftA_image = PleftA_image                                                                                                                  # Update the values of the field coordinates of the feet from the previous frame  with the current ones
+        prev_PrightA_image = PrightA_image
+   
+    else:
+   
+        prev_PleftA_image = prev_PleftA_image                                                                                                             # Keep the values of the field coordinates of the feet from the previous frame constant in case they weren't detected
+        prev_PrightA_image = prev_PrightA_image
+        
+
+          
     ############## Task 2 + Task 3 ###################
             
     ####################################################################################################
@@ -305,7 +311,10 @@ while cv2.waitKey(1) < 0:
 
     assert (len(BODY_PARTS) == out.shape[1])
 
-    pointsB = []   
+    #Points extraction in region B in array format if it matches the desired points corresponding to the heatmaps
+
+    pointsB = []   # changed from points => pointsB to access the data for region B separately
+    
     for i in range(len(BODY_PARTS)):
         # Slice heatmap of corresponding body's part.
         heatMap = out[0, i, :, :]
@@ -313,14 +322,14 @@ while cv2.waitKey(1) < 0:
         # Originally, we try to find all the local maximums. To simplify a sample
         # we just find a global one. However only a single pose at the same time
         # could be detected this way.
-        _, conf, _, point = cv2.minMaxLoc(
-            heatMap)  # The detection looks at the maximum probability distribution for the considered body part
+        _, conf, _, point = cv2.minMaxLoc(heatMap)  # The detection looks at the maximum probability distribution for the considered body part
         x = (frameWidth * point[0]) / out.shape[3]
         y = (frameHeight * point[1]) / out.shape[2]
         # Add a point if it's confidence is higher than threshold.
         pointsB.append((int(x),int(y)) if conf > 0.25 else None) 
         # IF CONFIDENCE INTERVAL IS ABOVE 0.2, THE SPECIFIC POINT IS CONSIDERED AS DETECTED (0.2 was imposed by me as the best-looking so far)
-
+    
+    # Joints pair identification and display
     for pair in POSE_PAIRS:
         
         partFrom = pair[0]
@@ -336,60 +345,72 @@ while cv2.waitKey(1) < 0:
             cv2.line(cropped_frame_B, pointsB[idFrom], pointsB[idTo], (0, 255, 0), 3)
             cv2.ellipse(cropped_frame_B, pointsB[idFrom], (3, 3), 0, 0, 360, (0, 0, 255), cv2.FILLED)
             cv2.ellipse(cropped_frame_B, pointsB[idTo], (3, 3), 0, 0, 360, (0, 0, 255), cv2.FILLED)
-    ######################################################################################################
+######################################################################################################
 
+
+    ############## Task 2 + Task 3 ###################
     #Initialization of the left and right ankles coordinates of the player in region B 
+    
     PleftB = None
     PrightB = None
 
     #Left ankle coordinates display in region B
-    for idx in [13]:
+    for idx in [13]:                                                                                                                               # I've left the for loop because I thought we might also use the knee position if the ankle is not available (but I've abandonded that, for now. Also the knees might not be detected, but I thought about it as a slight countermeasure)
         if pointsB[idx]:
 
-            PleftB = pointsB[idx]
-            cv2.circle(cropped_frame_B, PleftB, 5, (255, 0, 0), -1)
-            PleftB_image = cv2.perspectiveTransform(np.array([[PleftB]], dtype=np.float32), homography_matrix_inv)[0][0]
-            PleftB_image = (round(PleftB_image[0]),round(PleftB_image[1]))
-            cv2.putText(cropped_frame_B, f"{PleftB_image}", (PleftB[0] + 10, PleftB[1]), font, font_scale, color, thickness, cv2.LINE_AA)
+            PleftB = pointsB[idx]                                                                                                                  # Current image coordinates of the left ankle
+            cv2.circle(cropped_frame_B, PleftB, 5, (255, 0, 0), -1)                                                                                # Blue circle to highlight the left ankle position
+            PleftB_image = cv2.perspectiveTransform(np.array([[PleftB]], dtype=np.float32), homography_matrix_inv)[0][0]                           # Computation of the field coordinates of the left ankle using H^(-1)   (I believe the values are not correct, so modifications are needed)
+            PleftB_image = (round(PleftB_image[0]),round(PleftB_image[1]))                                                                         # Approximation to avoid displaying all the decimals
+            cv2.putText(cropped_frame_B, f"{PleftB_image}", (PleftB[0] + 10, PleftB[1]), font, font_scale, color, thickness, cv2.LINE_AA)          # Display of the left foot field coordinates values at image coordinates, with slight offset on the X axis to avoid overlapping with the actual foot
         
         if PleftB is None:
-            PleftB = (0,0)
+            PleftB = (0,0)                                                                                                                         # Avoid the "TypeError: 'NoneType' object is not subscriptable" => successful
     
     #Right ankle coordinates display in region B
     for idx in [10]:
         if pointsB[idx]:
 
-            PrightB = pointsB[idx]
-            cv2.circle(cropped_frame_B, PrightB, 5, (255, 0, 0), -1)
-            PrightB_image = cv2.perspectiveTransform(np.array([[PrightB]], dtype=np.float32), homography_matrix_inv)[0][0]
-            PrightB_image = (round(PrightB_image[0]),round(PrightB_image[1]))
-            cv2.putText(cropped_frame_B, f"{PrightB_image}", (PrightB[0] + 10, PrightB[1]), font, font_scale, color, thickness, cv2.LINE_AA)
+            PrightB = pointsB[idx]                                                                                                               # Current image coordinates of the right ankle
+            cv2.circle(cropped_frame_B, PrightB, 5, (255, 0, 0), -1)                                                                             # Blue circle to highlight the right ankle position
+            PrightB_image = cv2.perspectiveTransform(np.array([[PrightB]], dtype=np.float32), homography_matrix_inv)[0][0]                       # Computation of the field coordinates of the right ankle using H^(-1)   (I believe the values are not correct, so modifications are needed)
+            PrightB_image = (round(PrightB_image[0]),round(PrightB_image[1]))                                                                    # Approximation to avoid displaying all the decimals
+            cv2.putText(cropped_frame_B, f"{PrightB_image}", (PrightB[0] + 10, PrightB[1]), font, font_scale, color, thickness, cv2.LINE_AA)     # Display of the right foot field coordinates values at image coordinates, with slight offset on the X axis to avoid overlapping with the actual foot
             
-            if PrightB is None:
-                PrightB = (0,0)
-
-            elif prev_PleftB_image is not None and prev_PrightB_image is not None:
+        if PrightB is None:
+            PrightB = (0,0)                                                                                                                      # Avoid the "TypeError: 'NoneType' object is not subscriptable" => successful
+        
+        # Check if the player's position in region A has changed compared to the previous frame
+    if prev_PleftB_image is not None and prev_PrightB_image is not None:
                 
-                left_foot_moved_B = np.linalg.norm(np.array(PleftB_image) - np.array(prev_PleftB_image)) > threshold_moving
-                right_foot_moved_B = np.linalg.norm(np.array(PrightB_image) - np.array(prev_PrightB_image)) > threshold_moving
+        left_foot_moved_B = np.linalg.norm(np.array(PleftB_image) - np.array(prev_PleftB_image)) > threshold_moving                              # Euclidean distance computation between the current Left foot position and its position in the previous frame, all compared to the chosen threshold 
+        right_foot_moved_B = np.linalg.norm(np.array(PrightB_image) - np.array(prev_PrightB_image)) > threshold_moving                           # Euclidean distance computation between the current Right foot position and its position in the previous frame, all compared to the chosen threshold
 
-            if left_foot_moved_B or right_foot_moved_B:
-
-                cv2.putText(cropped_frame_B, f"Moving", (PleftB[0]-30, PleftB[1]+40), font, font_scale, color, thickness, cv2.LINE_AA)
-                prev_PleftB_image = PleftB_image
-                prev_PrightB_image = PrightB_image
-            
-            elif left_foot_moved_B==0 and right_foot_moved_B==0:
-            
-                prev_PleftB_image = PleftB_image
-                prev_PrightB_image = PrightB_image
-                cv2.putText(cropped_frame_B, f"Static", (PleftB[0]-30, PleftB[1]+40), font, font_scale, color, thickness, cv2.LINE_AA)
-            
+        if PleftB !=(0,0):                                                                                                                       # Check if the left ankle's point has been detected
+            if left_foot_moved_B:                                                                                                                # Check if the left foot has moved
+                cv2.putText(cropped_frame_B, f"(Lfoot) Moving", (PleftB[0]-60, PleftB[1]+70), font, font_scale, color, thickness, cv2.LINE_AA)   # Display "(LFoot) Moving" under the player's left foot using the image coordinates of the left foot with an offset  
+                            
             else:
+                cv2.putText(cropped_frame_B, f"(Lfoot) Static", (PleftB[0]-60, PleftB[1]+70), font, font_scale, color, thickness, cv2.LINE_AA)   # Display "(LFoot) Static" under the player's left foot using the image coordinates of the left foot with an offset  
             
-                prev_PleftB_image = prev_PleftB_image
-                prev_PrightB_image = prev_PrightB_image
+        if PrightB !=(0,0):                                                                                                                      # Check if the right ankle's point has been detected
+            if right_foot_moved_B:                                                                                                               # Check if the right foot has moved 
+                cv2.putText(cropped_frame_B, f"(Rfoot) Moving", (PrightB[0]-60, PrightB[1]+40), font, font_scale, color, thickness, cv2.LINE_AA) # Display "(RFoot) Moving" under the player's right foot using the image coordinates of the left foot with an offset  
+                            
+            else:
+                cv2.putText(cropped_frame_B, f"(Rfoot) Static", (PrightB[0]-60, PrightB[1]+40), font, font_scale, color, thickness, cv2.LINE_AA) # Display "(RFoot) Static" under the player's right foot using the image coordinates of the right foot with an offset
+            
+        prev_PleftB_image = PleftB_image                                                                                                         # Update the values of the field coordinates of the feet from the previous frame  with the current ones
+        prev_PrightB_image = PrightB_image
+        
+    else:
+            
+        prev_PleftB_image = prev_PleftB_image                                                                                                    # Keep the values of the field coordinates of the feet from the previous frame constant in case they weren't detected
+        prev_PrightB_image = prev_PrightB_image
               
+    ############## Task 2 + Task 3 ###################
+        
+                  
     t, _ = net.getPerfProfile()
     freq = cv2.getTickFrequency() / 1000
 
