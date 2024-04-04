@@ -166,6 +166,13 @@ prev_PleftB_image = (0,0)
 prev_PrightB_image = (0,0)
 threshold_moving = 20
 ############## Task 3 ###################
+############## Task 4 ###################
+# Initialization of the lists that will collect the time sequence of the step points: i.e., the positions H^-1P of the feet in the instances when they were static.
+PleftA_image_static_list = []
+PrightA_image_static_list =[]
+PleftB_image_static_list = []
+PrightB_image_static_list =[]
+############## Task 4 ###################
 
 ##
 # PROCESSING LOOP
@@ -229,7 +236,7 @@ while cv2.waitKey(1) < 0:
  ######################################################################################################
     
 
-    ############## Task 2 + Task 3 ###################
+    ############## Task 2 + Task 3 + Task 4 ###################
     #Initialization of the left and right ankles coordinates of the player in region A 
     
     PleftA = None
@@ -247,7 +254,7 @@ while cv2.waitKey(1) < 0:
             #print("Original point (PleftA):", PleftA)
             #print("Transformed point (PleftA_image):", PleftA_image)
          
-        if PleftA is None:                                                                                                                       # Avoid the "TypeError: 'NoneType' object is not subscriptable" => successful 
+        if  PleftA is None:                                                                                                                       # Avoid the "TypeError: 'NoneType' object is not subscriptable" => successful 
             PleftA = (0,0)   
     
     # Right ankle coordinates display in region A
@@ -275,14 +282,14 @@ while cv2.waitKey(1) < 0:
         
             else:
                 cv2.putText(cropped_frame_A, f"(LFoot) Static", (PleftA[0]-60, PleftA[1]+70), font, font_scale, color, thickness, cv2.LINE_AA)            # Display "(LFoot) Static" under the player's left foot using the image coordinates of the left foot with an offset  
-        
+                PleftA_image_static_list.append(PleftA_image)                                                                                             # Add the image coordinates of the left foot to the list if it is static (Task4)
         if PrightA!=(0,0):                                                                                                                                # Check if the right ankle's point has been detected
             if  right_foot_moved_A:                                                                                                                       # Check if the right foot has moved            
                 cv2.putText(cropped_frame_A, f"(RFoot) Moving", (PrightA[0]+60, PrightA[1]+40), font, font_scale, color, thickness, cv2.LINE_AA)          # Display "(RFoot) Moving" under the player's right foot using the image coordinates of the left foot with an offset  
-       
+  
             else:                         
                 cv2.putText(cropped_frame_A, f"(RFoot) Static", (PrightA[0]+60, PrightA[1]+40), font, font_scale, color, thickness, cv2.LINE_AA)          # Display "(RFoot) Static" under the player's right foot using the image coordinates of the right foot with an offset
-
+                PrightA_image_static_list.append(PrightA_image)                                                                                           # Add the image coordinates of the right foot to the list if it is static (Task4)
         prev_PleftA_image = PleftA_image                                                                                                                  # Update the values of the field coordinates of the feet from the previous frame  with the current ones
         prev_PrightA_image = PrightA_image
    
@@ -293,7 +300,7 @@ while cv2.waitKey(1) < 0:
         
 
           
-    ############## Task 2 + Task 3 ###################
+    ############## Task 2 + Task 3 + Task 4 ###################
             
     ####################################################################################################
     ################################### TOP DETECTION ##################################################
@@ -348,7 +355,7 @@ while cv2.waitKey(1) < 0:
 ######################################################################################################
 
 
-    ############## Task 2 + Task 3 ###################
+    ############## Task 2 + Task 3 + Task 4 ###################
     #Initialization of the left and right ankles coordinates of the player in region B 
     
     PleftB = None
@@ -392,14 +399,15 @@ while cv2.waitKey(1) < 0:
                             
             else:
                 cv2.putText(cropped_frame_B, f"(Lfoot) Static", (PleftB[0]-60, PleftB[1]+70), font, font_scale, color, thickness, cv2.LINE_AA)   # Display "(LFoot) Static" under the player's left foot using the image coordinates of the left foot with an offset  
-            
+                PleftB_image_static_list.append(PleftB_image)                                                                                    # Add the image coordinates of the left foot to the list if it is static (Task4)
         if PrightB !=(0,0):                                                                                                                      # Check if the right ankle's point has been detected
             if right_foot_moved_B:                                                                                                               # Check if the right foot has moved 
                 cv2.putText(cropped_frame_B, f"(Rfoot) Moving", (PrightB[0]-60, PrightB[1]+40), font, font_scale, color, thickness, cv2.LINE_AA) # Display "(RFoot) Moving" under the player's right foot using the image coordinates of the left foot with an offset  
                             
             else:
                 cv2.putText(cropped_frame_B, f"(Rfoot) Static", (PrightB[0]-60, PrightB[1]+40), font, font_scale, color, thickness, cv2.LINE_AA) # Display "(RFoot) Static" under the player's right foot using the image coordinates of the right foot with an offset
-            
+                PrightB_image_static_list.append(PrightB_image)                                                                                  # Add the image coordinates of the right foot to the list if it is static (Task4)
+                
         prev_PleftB_image = PleftB_image                                                                                                         # Update the values of the field coordinates of the feet from the previous frame  with the current ones
         prev_PrightB_image = PrightB_image
         
@@ -408,9 +416,9 @@ while cv2.waitKey(1) < 0:
         prev_PleftB_image = prev_PleftB_image                                                                                                    # Keep the values of the field coordinates of the feet from the previous frame constant in case they weren't detected
         prev_PrightB_image = prev_PrightB_image
               
-    ############## Task 2 + Task 3 ###################
-        
-                  
+    ############## Task 2 + Task 3 + Task 4 ###################
+
+
     t, _ = net.getPerfProfile()
     freq = cv2.getTickFrequency() / 1000
 
