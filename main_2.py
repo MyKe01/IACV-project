@@ -99,6 +99,10 @@ plt.title("Image with selected points and lines")
 plt.show()
 """
 import argparse
+#from mediapipe import solutions
+#from cv2 import cvtColor, COLOR_BGR2RGB, COLOR_RGB2BGR
+import mediapipe as mp
+import time
 
 # Section considered if the script main.py is run with arguments in the Terminal, EXAMPLE: $user: main.py --input videotitle.mp4
 parser = argparse.ArgumentParser()
@@ -138,20 +142,16 @@ thickness = 1
 net = cv2.dnn.readNetFromTensorflow("resources/pose_model.pb")
 
 # Loading of the clip to analyze
-cap = cv2.VideoCapture("resources/tennisMatchShort.mp4")
+cap = cv2.VideoCapture("resources/tennis2.mp4")
 
 # Allocation to write the resulting evaluation in a video file at the end
-result = cv2.VideoWriter('result1.mp4',
+result = cv2.VideoWriter('result2.mp4',
                          cv2.VideoWriter_fourcc(*'mp4v'),
-                         10, (1920, 1080))
+                         10, (1280, 720))
 
-# PROCESSING LOOP
-while cv2.waitKey(1) < 0:
-    hasFrame, frame = cap.read()
-    if not hasFrame:
-        # cv2.waitKey()
-        break
 
+
+"""
     ################################### BOTTOM DETECTION ##################################################
     # Refer to "TOP DETECTION" under this section to see the comments on how the parts are detected
     cropped_frame_A = frame[530:1080, 20:1740]
@@ -294,3 +294,157 @@ result.release()
 cv2.destroyAllWindows()
 
 print("The video was successfully saved")
+"""
+
+"""
+
+class crop1:
+    x: float = 50/100
+    xoffset: float = 0/100
+    xcenter: int = 1 
+    
+    y: float = 33/100
+    yoffset: float = 0/100
+    ycenter: int = 0
+    
+class crop2:
+    x: float = 83/100
+    xoffset: float = 0/100
+    xcenter: int = 1 
+    
+    y: float = 60/100
+    yoffset: float = 40/100
+    ycenter: int = 0
+
+mp_pose = solutions.pose
+pose1 = mp_pose.Pose(model_complexity=2, min_detection_confidence=0.25, min_tracking_confidence=0.25)
+pose2 = mp_pose.Pose(model_complexity=2, min_detection_confidence=0.25, min_tracking_confidence=0.25)
+"""
+
+mpPose = mp.solutions.pose
+pose = mpPose.Pose()
+mpDraw = mp.solutions.drawing_utils
+
+# PROCESSING LOOP
+while cv2.waitKey(1) < 0:
+    hasFrame, frame = cap.read()
+    if not hasFrame:
+        # cv2.waitKey()
+        break
+    cTime = time.time()
+    #cropped_frame_A = frame[530:1080, 20:1740]
+    cropped_frame_A = frame[400:720, 100:1100]
+    frameWidth = cropped_frame_A.shape[1]
+    frameHeight = cropped_frame_A.shape[0]
+    imgRGB = cv2.cvtColor(cropped_frame_A, cv2.COLOR_BGR2RGB)
+    results = pose.process(imgRGB)
+    print(results.pose_landmarks)
+    if results.pose_landmarks:
+        mpDraw.draw_landmarks(cropped_frame_A, results.pose_landmarks, mpPose.POSE_CONNECTIONS)
+        for id, lm in enumerate(results.pose_landmarks.landmark):
+            h, w,c = cropped_frame_A.shape
+            print(id, lm)
+            cx, cy = int(lm.x*w), int(lm.y*h)
+            cv2.circle(cropped_frame_A, (cx, cy), 5, (255,0,0), cv2.FILLED)
+
+    
+    
+    pTime = time.time()
+
+    fps = 1/(cTime-pTime)
+    frame[400:720, 100:1100] = cropped_frame_A
+    cv2.putText(frame, str(int(fps)), (50,50), cv2.FONT_HERSHEY_SIMPLEX,1,(255,0,0), 3)
+    cv2.imshow("Image", frame) 
+    result.write(frame)
+
+
+
+cap.release()
+result.release()
+
+# Closes all the frames
+cv2.destroyAllWindows()
+
+print("The video was successfully saved")
+
+"""
+#DETECTION FUNCTION
+def bodyMap(frame, pose1, pose2, crop1, crop2):
+        
+    # Mapping of Player 1
+    frame1 = frame[crop1.yoffset:crop1.y+crop1.yoffset,crop1.xoffset:crop1.x+crop1.xoffset]
+    frame1 = cvtColor(frame1, COLOR_BGR2RGB)
+    results1 = pose1.process(frame1)
+    frame1 = cvtColor(frame1, COLOR_RGB2BGR)
+    # mp_drawing.draw_landmarks(frame1, results1.pose_landmarks,solutions.pose.POSE_CONNECTIONS)
+    if results1.pose_landmarks is not None:
+        l1_foot_x = int(results1.pose_landmarks.landmark[mp_pose.PoseLandmark.LEFT_FOOT_INDEX].x * crop1.x) + crop1.xoffset
+        l1_foot_y = int(results1.pose_landmarks.landmark[mp_pose.PoseLandmark.LEFT_FOOT_INDEX].y * crop1.y) + crop1.yoffset
+
+        r1_foot_x = int(results1.pose_landmarks.landmark[mp_pose.PoseLandmark.RIGHT_FOOT_INDEX].x * crop1.x) + crop1.xoffset
+        r1_foot_y = int(results1.pose_landmarks.landmark[mp_pose.PoseLandmark.RIGHT_FOOT_INDEX].y * crop1.y) + crop1.yoffset
+
+        l1_hand_x = int(results1.pose_landmarks.landmark[mp_pose.PoseLandmark.LEFT_INDEX].x * crop1.x) + crop1.xoffset
+        l1_hand_y = int(results1.pose_landmarks.landmark[mp_pose.PoseLandmark.LEFT_INDEX].y * crop1.y) + crop1.yoffset
+
+        r1_hand_x = int(results1.pose_landmarks.landmark[mp_pose.PoseLandmark.RIGHT_INDEX].x * crop1.x) + crop1.xoffset
+        r1_hand_y = int(results1.pose_landmarks.landmark[mp_pose.PoseLandmark.RIGHT_INDEX].y * crop1.y) + crop1.yoffset
+
+        nose1_x = int(results1.pose_landmarks.landmark[mp_pose.PoseLandmark.NOSE].x * crop1.x) + crop1.xoffset
+        nose1_y = int(results1.pose_landmarks.landmark[mp_pose.PoseLandmark.NOSE].y * crop1.y) + crop1.yoffset
+    else:
+        l1_foot_x = None
+        l1_foot_y = None
+
+        r1_foot_x = None
+        r1_foot_y = None
+
+        l1_hand_x = None
+        l1_hand_y = None
+
+        r1_hand_x = None
+        r1_hand_y = None
+
+        nose1_x = None
+        nose1_y = None
+
+    # Mapping of Player 2
+    frame2 = frame[crop2.yoffset:crop2.y+crop2.yoffset,crop2.xoffset:crop2.x+crop2.xoffset]
+    frame2 = cvtColor(frame2, COLOR_BGR2RGB)
+    results2 = pose2.process(frame2)
+    frame2 = cvtColor(frame2, COLOR_RGB2BGR)
+    # mp_drawing.draw_landmarks(frame2, results2.pose_landmarks,solutions.pose.POSE_CONNECTIONS)
+
+    if results2.pose_landmarks is not None:
+        l2_foot_x = int(results2.pose_landmarks.landmark[mp_pose.PoseLandmark.LEFT_FOOT_INDEX].x * crop2.x) + crop2.xoffset
+        l2_foot_y = int(results2.pose_landmarks.landmark[mp_pose.PoseLandmark.LEFT_FOOT_INDEX].y * crop2.y) + crop2.yoffset
+
+        r2_foot_x = int(results2.pose_landmarks.landmark[mp_pose.PoseLandmark.RIGHT_FOOT_INDEX].x * crop2.x) + crop2.xoffset
+        r2_foot_y = int(results2.pose_landmarks.landmark[mp_pose.PoseLandmark.RIGHT_FOOT_INDEX].y * crop2.y) + crop2.yoffset
+
+        l2_hand_x = int(results2.pose_landmarks.landmark[mp_pose.PoseLandmark.LEFT_INDEX].x * crop2.x) + crop2.xoffset
+        l2_hand_y = int(results2.pose_landmarks.landmark[mp_pose.PoseLandmark.LEFT_INDEX].y * crop2.y) + crop2.yoffset
+
+        r2_hand_x = int(results2.pose_landmarks.landmark[mp_pose.PoseLandmark.RIGHT_INDEX].x * crop2.x) + crop2.xoffset
+        r2_hand_y = int(results2.pose_landmarks.landmark[mp_pose.PoseLandmark.RIGHT_INDEX].y * crop2.y) + crop2.yoffset
+
+        nose2_x = int(results2.pose_landmarks.landmark[mp_pose.PoseLandmark.NOSE].x * crop2.x) + crop2.xoffset
+        nose2_y = int(results2.pose_landmarks.landmark[mp_pose.PoseLandmark.NOSE].y * crop2.y) + crop2.yoffset
+    else:
+        l2_foot_x = None
+        l2_foot_y = None
+
+        r2_foot_x = None
+        r2_foot_y = None
+
+        l2_hand_x = None
+        l2_hand_y = None
+
+        r2_hand_x = None
+        r2_hand_y = None
+
+        nose2_x = None
+        nose2_y = None
+
+    return ([[[l1_foot_x,l1_foot_y],[r1_foot_x,r1_foot_y],[l2_foot_x,l2_foot_y],[r2_foot_x,r2_foot_y]], [[l1_hand_x,l1_hand_y],[r1_hand_x,r1_hand_y],[l2_hand_x,l2_hand_y],[r2_hand_x,r2_hand_y]], [[nose1_x, nose1_y], [nose2_x, nose2_y]]])
+"""
