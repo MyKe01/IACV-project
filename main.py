@@ -6,8 +6,10 @@ import threading
 #from cv2 import cvtColor, COLOR_BGR2RGB, COLOR_RGB2BGR
 import mediapipe as mp
 import time
+from TRACE.BallDetection import BallDetector
+from TRACE.BallMapping import euclideanDistance, withinCircle
 
-def computePoseAndAnkles(cropped_frame, static_centers_queue,  mpPose, pose, mpDraw, hom_matrix, prev_right_ankle, prev_left_ankle, threshold, x_offset, y_offset, rect_img):
+def computePoseAndAnkles(cropped_frame, static_centers_queue, mpPose, pose, mpDraw, hom_matrix, prev_right_ankle, prev_left_ankle, threshold, x_offset, y_offset, rect_img):
 
     imgRGB = cv2.cvtColor(cropped_frame, cv2.COLOR_BGR2RGB)
     results = pose.process(imgRGB)
@@ -239,6 +241,7 @@ result = cv2.VideoWriter('result2.mp4',
                          cv2.VideoWriter_fourcc(*'mp4v'),
                          60, (image.shape[1] + rectified_image.shape[1], 720))
 
+ball_detector = BallDetector('TRACE/TrackNet/Weights.pth', out_channels=2)
 while cv2.waitKey(1) < 0:
     hasFrame, frame = cap.read()
     if not hasFrame:
@@ -246,25 +249,19 @@ while cv2.waitKey(1) < 0:
         break
     cTime = time.time()
     
-    #changing the rectified image to "clean" it from the previous drawings of the center
-    rectified_image = cv2.warpPerspective(image, homography_matrix, (image.shape[1], image.shape[0]))
+    ball_detector.detect_ball(frame) #######################
 
-    cropped_frame_B = frame[90:250, 390:855].copy()
-    cropped_frame_A = frame[400:720, 100:1100].copy()
-    #creating two threads to improve performances for the detection of the pose
-    th_A = threading.Thread(target=computePoseAndAnkles, args=( cropped_frame_A, stationary_points_A, mpPose_A, pose_A, mpDraw_A, homography_matrix, prev_PrightA_image, prev_PleftA_image, threshold_moving, 100, 400, rectified_image))
-    th_B = threading.Thread(target=computePoseAndAnkles, args=( cropped_frame_B, stationary_points_B, mpPose_B, pose_B, mpDraw_B, homography_matrix, prev_PrightB_image, prev_PleftB_image, threshold_moving, 390,  90, rectified_image))
+    if ball_detector.xy_coordinates[-1][0] is not None and ball_detector.xy_coordinates[-1][1] is not None:
+        center_x = ball_detector.xy_coordinates[-1][0]
+        center_y = ball_detector.xy_coordinates[-1][1]
+        cv2.circle(frame, (center_x, center_y), 5, (0, 255, 0), cv2.FILLED)
     
-    th_A.start()
-    th_B.start()
-    th_A.join()
-    th_B.join()
     pTime = time.time()
 
     fps = 1/(cTime-pTime)
-    frame[400:720, 100:1100] = cropped_frame_A
-    frame[90:250, 390:855] = cropped_frame_B
+    
     cv2.putText(frame, str(int(fps)), (50,50), cv2.FONT_HERSHEY_SIMPLEX,1,(255,0,0), 3)
+
     #combining the two images 
     height = max(frame.shape[0], rectified_image.shape[0])
 
@@ -276,6 +273,45 @@ while cv2.waitKey(1) < 0:
     cv2.imshow('Combined Images', combined_image)
     result.write(combined_image)
 
+"""
+while cv2.waitKey(1) < 0:
+    hasFrame, frame = cap.read()
+    if not hasFrame:
+        # cv2.waitKey()
+        break
+    cTime = time.time()
+    
+    #changing the rectified image to "clean" it from the previous drawings of the center
+    rectified_image = cv2.warpPerspective(image, homography_matrix, (image.shape[1], image.shape[0]))
+
+    cropped_frame_B = frame[90:250, 390:855].copy()
+    cropped_frame_A = frame[350:720, 100:1100].copy()
+    #creating two threads to improve performances for the detection of the pose
+    th_A = threading.Thread(target=computePoseAndAnkles, args=(cropped_frame_A, stationary_points_A, mpPose_A, pose_A, mpDraw_A, homography_matrix, prev_PrightA_image, prev_PleftA_image, threshold_moving, 100, 400, rectified_image))
+    th_B = threading.Thread(target=computePoseAndAnkles, args=(cropped_frame_B, stationary_points_B, mpPose_B, pose_B, mpDraw_B, homography_matrix, prev_PrightB_image, prev_PleftB_image, threshold_moving, 390,  90, rectified_image))
+    
+    th_A.start()
+    th_B.start()
+    th_A.join()
+    th_B.join()
+    pTime = time.time()
+
+    fps = 1/(cTime-pTime)
+    frame[350:720, 100:1100] = cropped_frame_A
+    frame[90:250, 390:855] = cropped_frame_B
+    cv2.putText(frame, str(int(fps)), (50,50), cv2.FONT_HERSHEY_SIMPLEX,1,(255,0,0), 3)
+
+    #combining the two images 
+    height = max(frame.shape[0], rectified_image.shape[0])
+
+    frame = cv2.resize(frame, (int(frame.shape[1] * height / frame.shape[0]), height))
+    rectified_image = cv2.resize(rectified_image, (int(rectified_image.shape[1] * height / rectified_image.shape[0]), height))
+    rectified_image = cv2.cvtColor(rectified_image, cv2.COLOR_RGB2BGR)
+
+    combined_image = cv2.hconcat([frame, rectified_image])
+    cv2.imshow('Combined Images', combined_image)
+    result.write(combined_image)
+"""
 
 cap.release()
 result.release()
