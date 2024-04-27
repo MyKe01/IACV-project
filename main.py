@@ -1,3 +1,26 @@
+###################################################################################################################################################################################################################
+#  _____          _______      __  _____           _           _   
+# |_   _|   /\   / ____\ \    / / |  __ \         (_)         | |  
+#   | |    /  \ | |     \ \  / /  | |__) | __ ___  _  ___  ___| |_ 
+#   | |   / /\ \| |      \ \/ /   |  ___/ '__/ _ \| |/ _ \/ __| __|
+#  _| |_ / ____ \ |____   \  /    | |   | | | (_) | |  __/ (__| |_ 
+# |_____/_/    \_\_____|   \/     |_|   |_|  \___/| |\___|\___|\__|
+#                                                _/ |              
+#                                               |__/               
+# Project completed by Paolo Riva, Michelangelo Stasi, Mihai-Viorel Grecu
+# This Computer Vision project aims at detecting two players involved in a tennis match through the widely-used Human Pose Detection method.
+#
+# The program focuses on detecting the movement performed by the players, specifically:
+# 0. Identify the field lines and, knowing the field measures, find yhe homography H from field to image.
+# 1. Use the well-known Human Pose Estimation  method (based on Deep Learning) to identify the articulated segments of the player.
+# 2. Select the feet (end points of the leg segments) and their position Pleft and Pright in each image
+# 3. Check whether the feet are static or they are moving (by checking if H^-1 Pleft and/or H^-1 Pright are constant along a short sequence).
+#    If a foot is static, assume that it is placed on the ground.
+# 4. Collect the time-sequence of the step points: i.e., the positions H^-1P of the feet in the instances when they were static.
+# 5. In parallel, try to select the time instants when the player hits the ball eith yhe rackets, and compute statistics on the short runs between consecutive hits
+# 
+###################################################################################################################################################################################################################
+
 import cv2
 import numpy as np
 import matplotlib.pyplot as plt
@@ -85,6 +108,19 @@ def computePoseAndAnkles(cropped_frame, static_centers_queue, mpPose, pose, mpDr
     #displaying live positions of the player
     center_real = (round(center_real[0]), round(center_real[1]))
     cv2.circle(rect_img, center_real , 5, (255, 255, 0), cv2.FILLED)
+
+def processBallTrajectory (BallDetector, frame, ballpos):
+    ball_detector.detect_ball(frame) 
+    if ball_detector.xy_coordinates[-1][0] is not None and ball_detector.xy_coordinates[-1][1] is not None:
+        center_x = ball_detector.xy_coordinates[-1][0]
+        center_y = ball_detector.xy_coordinates[-1][1]
+        #ballpos = (center_x,center_y)
+        #cv2.circle(frame, (center_x, center_y), 5, (0, 255, 0), cv2.FILLED)
+        positions_stack.append((center_x,center_y))
+        #print(ballpos)
+        #return ballpos
+    else: positions_stack.append((0,0))
+    
 
 def select_points(image):
     # Display the image and allow the user to select points
@@ -174,25 +210,10 @@ image_with_lines = draw_lines(image, points)
 homography_matrix = calculate_homography(points, points, field_length, field_width)
 homography_matrix_inv = np.linalg.inv(homography_matrix)
 
-""" testing purpose
-# Rectify the original image using the calculated homography
-rectified_image = cv2.warpPerspective(image, homography_matrix, (image.shape[1], image.shape[0]))
-# Display the rectified image to check the correctness of the homography matrix 
-plt.imshow(rectified_image)
-# Define a point in the original image (x, y)
-point = np.array([[390, 200]], dtype=np.float32)
-# Reshape the point array to shape (1, 1, 2)
-point = np.reshape(point, (1, 1, 2))
-point =cv2.perspectiveTransform(point, homography_matrix)
-plt.plot(point[0][0][0], point[0][0][1], 'ro')
-plt.title("Rectified Image")
-plt.show()
-# Display the image with selected points and lines
-plt.imshow(image_with_lines)
-plt.title("Image with selected points and lines")
-plt.show()
-"""
-
+# Ball trajectory util
+positions_stack = [] #stack to compute values in thread
+ball_positions = [] #array of the trajectory in the image
+ball_positions_real = [] #
 
 ############## Task 2 ###################
 # Font characteristics for the coordinates display 
@@ -242,6 +263,8 @@ result = cv2.VideoWriter('result2.mp4',
                          60, (image.shape[1] + rectified_image.shape[1], 720))
 
 ball_detector = BallDetector('TRACE/TrackNet/Weights.pth', out_channels=2)
+
+"""
 while cv2.waitKey(1) < 0:
     hasFrame, frame = cap.read()
     if not hasFrame:
@@ -249,14 +272,9 @@ while cv2.waitKey(1) < 0:
         break
     cTime = time.time()
     
-    ball_detector.detect_ball(frame) #######################
-
-    if ball_detector.xy_coordinates[-1][0] is not None and ball_detector.xy_coordinates[-1][1] is not None:
-        center_x = ball_detector.xy_coordinates[-1][0]
-        center_y = ball_detector.xy_coordinates[-1][1]
-        cv2.circle(frame, (center_x, center_y), 5, (0, 255, 0), cv2.FILLED)
     
-    pTime = time.time()
+    
+    pTime = 0.00001+time.time()
 
     fps = 1/(cTime-pTime)
     
@@ -272,8 +290,8 @@ while cv2.waitKey(1) < 0:
     combined_image = cv2.hconcat([frame, rectified_image])
     cv2.imshow('Combined Images', combined_image)
     result.write(combined_image)
-
 """
+
 while cv2.waitKey(1) < 0:
     hasFrame, frame = cap.read()
     if not hasFrame:
@@ -286,22 +304,38 @@ while cv2.waitKey(1) < 0:
 
     cropped_frame_B = frame[90:250, 390:855].copy()
     cropped_frame_A = frame[350:720, 100:1100].copy()
+    
     #creating two threads to improve performances for the detection of the pose
     th_A = threading.Thread(target=computePoseAndAnkles, args=(cropped_frame_A, stationary_points_A, mpPose_A, pose_A, mpDraw_A, homography_matrix, prev_PrightA_image, prev_PleftA_image, threshold_moving, 100, 400, rectified_image))
     th_B = threading.Thread(target=computePoseAndAnkles, args=(cropped_frame_B, stationary_points_B, mpPose_B, pose_B, mpDraw_B, homography_matrix, prev_PrightB_image, prev_PleftB_image, threshold_moving, 390,  90, rectified_image))
+    th_C = threading.Thread(target=processBallTrajectory, args=(ball_detector, frame, positions_stack.copy()))
     
     th_A.start()
     th_B.start()
+    th_C.start()
     th_A.join()
     th_B.join()
+    th_C.join()
+
+    ballpos = positions_stack.pop()
+
     pTime = time.time()
 
     fps = 1/(cTime-pTime)
+    
     frame[350:720, 100:1100] = cropped_frame_A
     frame[90:250, 390:855] = cropped_frame_B
+    if ballpos != (0,0):
+        cv2.circle(frame, ballpos, 5, (0, 255, 0), cv2.FILLED)
+    ball_positions.append(ballpos)
+
+    # Putting ball position into perspective
+    real_ball_pos = cv2.perspectiveTransform(ballpos, homography_matrix)
+    ball_positions_real.append(real_ball_pos)
+
     cv2.putText(frame, str(int(fps)), (50,50), cv2.FONT_HERSHEY_SIMPLEX,1,(255,0,0), 3)
 
-    #combining the two images 
+    # Appending the perspective image on the side
     height = max(frame.shape[0], rectified_image.shape[0])
 
     frame = cv2.resize(frame, (int(frame.shape[1] * height / frame.shape[0]), height))
@@ -311,7 +345,7 @@ while cv2.waitKey(1) < 0:
     combined_image = cv2.hconcat([frame, rectified_image])
     cv2.imshow('Combined Images', combined_image)
     result.write(combined_image)
-"""
+
 
 cap.release()
 result.release()
