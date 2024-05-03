@@ -23,6 +23,7 @@
 
 import cv2
 import numpy as np
+from scipy.interpolate import interp1d
 import matplotlib.pyplot as plt
 import threading
 #from mediapipe import solutions
@@ -184,6 +185,53 @@ def calculate_homography(image_points, field_points, field_length, field_width):
 
     return homography
 
+def interpolate_missing_values(coords):
+    jump = 5
+    interval = jump*2
+    numofcoords = len(coords)
+    interpolated = []
+
+    index = 0
+    while coords(index) == (0,0):
+        index += 1
+    index += jump
+    oversampling = 0
+    while index < numofcoords-1:
+
+        subpositions = [(x, y) for x,y in coords[index-jump:index+jump+oversampling-1]] #interval array from coords -> ..........,[X,X,X,X,X,JUMP,X,X,X,X,OVERSAMPLING],............
+        if all((item != (0,0)) for item in subpositions): #Skip if all values in interval exist already (no interpolation necessary)
+            oversampling = 0
+            index += jump
+            continue
+
+        if all((item == (0,0) for item in subpositions[index:index+jump+oversampling-1])): #If all 5 new samples analyzed are null (interpolation might be imprecise), restart interval interpolation considering one more sample appended on the right
+            oversampling += 1
+            continue
+
+        #Estraction of non-zero values to create interpolation function
+        non_zero_coords = [(x, y) for x, y in subpositions if (x, y) != (0, 0)]
+        zero_indices = [i for i, point in subpositions if point == (0, 0)]
+        x_values = [x for x, _ in non_zero_coords]
+        y_values = [y for _, y in non_zero_coords] 
+
+        #Creation of time axis for the considered interval
+        t_axis = np.linspace(1, interval+oversampling, interval+oversampling, dtype=int) #axis of time to interpolate
+
+        #Creation of function over x values
+        x_interp_func = interp1d(t_axis, x_values, kind='spline', fill_value='extrapolate')
+
+        #Creation of function over y values
+        y_interp_func = interp1d(t_axis, y_values, kind='spline', fill_value='extrapolate')
+
+        # Riempimento dei valori (0, 0) interpolati
+        for i in zero_indices:
+            x_interp_value = x_interp_func(i)
+            y_interp_value = y_interp_func(i)
+            subpositions[i] = (x_interp_value, y_interp_value)    
+
+        oversampling = 0
+        index += jump
+
 
 ############################### MAIN ####################################
 field_length = 23.78 #meters
@@ -291,14 +339,16 @@ while cv2.waitKey(1) < 0:
     cv2.imshow('Combined Images', combined_image)
     result.write(combined_image)
 """
-
+print("\nballpos: [")
+i=0
 while cv2.waitKey(1) < 0:
     hasFrame, frame = cap.read()
     if not hasFrame:
         # cv2.waitKey()
         break
     cTime = time.time()
-    
+    print(f"({i}):")
+    i+=1
     #changing the rectified image to "clean" it from the previous drawings of the center
     rectified_image = cv2.warpPerspective(image, homography_matrix, (image.shape[1], image.shape[0]))
 
@@ -328,10 +378,14 @@ while cv2.waitKey(1) < 0:
     if ballpos != (0,0):
         cv2.circle(frame, ballpos, 5, (0, 255, 0), cv2.FILLED)
     ball_positions.append(ballpos)
+    print(f"{ballpos}, ")
+
+    interpolated_samples = interpolate_missing_values(ball_positions)
+    cv2.circle(frame, ball_positions[i], 2.5, (255, 0, 0), cv2.FILLED)
 
     # Putting ball position into perspective
-    real_ball_pos = cv2.perspectiveTransform(ballpos, homography_matrix)
-    ball_positions_real.append(real_ball_pos)
+    #real_ball_pos = cv2.perspectiveTransform(ballpos, homography_matrix)
+    #ball_positions_real.append(real_ball_pos)
 
     cv2.putText(frame, str(int(fps)), (50,50), cv2.FONT_HERSHEY_SIMPLEX,1,(255,0,0), 3)
 
