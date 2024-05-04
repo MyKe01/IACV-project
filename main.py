@@ -21,6 +21,8 @@
 # 
 ###################################################################################################################################################################################################################
 
+## MODULES ########################################################
+import sys
 import cv2
 import numpy as np
 from scipy.interpolate import interp1d
@@ -32,6 +34,15 @@ import mediapipe as mp
 import time
 from TRACE.BallDetection import BallDetector
 from TRACE.BallMapping import euclideanDistance, withinCircle
+from moviepy.editor import VideoFileClip
+##################################################################
+
+#Global Variables
+sequence = False
+prevpos = (0,0)
+pos_counter = 0
+lastvalidpos = (0,0)
+beginning = True
 
 def computePoseAndAnkles(cropped_frame, static_centers_queue, mpPose, pose, mpDraw, hom_matrix, prev_right_ankle, prev_left_ankle, threshold, x_offset, y_offset, rect_img):
 
@@ -110,18 +121,61 @@ def computePoseAndAnkles(cropped_frame, static_centers_queue, mpPose, pose, mpDr
     center_real = (round(center_real[0]), round(center_real[1]))
     cv2.circle(rect_img, center_real , 5, (255, 255, 0), cv2.FILLED)
 
-def processBallTrajectory (BallDetector, frame, ballpos):
-    ball_detector.detect_ball(frame) 
+def processBallTrajectory (BallDetector, frame, positions_stack):
+    global pos_counter
+    global prevpos
+    global lastvalidpos
+    global beginning
+
+    ball_detector.detect_ball(frame) # Detection of the ball
+
+    # Valid Position Detected by the model
     if ball_detector.xy_coordinates[-1][0] is not None and ball_detector.xy_coordinates[-1][1] is not None:
         center_x = ball_detector.xy_coordinates[-1][0]
         center_y = ball_detector.xy_coordinates[-1][1]
-        #ballpos = (center_x,center_y)
-        #cv2.circle(frame, (center_x, center_y), 5, (0, 255, 0), cv2.FILLED)
-        positions_stack.append((center_x,center_y))
-        #print(ballpos)
-        #return ballpos
-    else: positions_stack.append((0,0))
+        currpos = (center_x, center_y)
+
+        #if pos_counter < 3:
+        #    positions_stack.append(currpos)
+        #    prevpos = currpos
+        #    pos_counter += 1
+        #    return
+        #else: sequence = True
+
+        # Head of sequence detected
+        if pos_counter < 3: #pos_counter keeps track of the head of each non-zero sequence, to avoid worst-case scenarios where the first new sequence is a mistake by the deep learning model (e.g. detecting an ankle multiple times instead of the ball)
+            if not beginning and (abs(currpos[0]-lastvalidpos[0]) > 200 or abs(currpos[1]-lastvalidpos[1]) > 200): #If the ball wasn't detected last 3 frames (counter was put to 0) we check that the first value detected isn't an error (being 200 pixel off the last confirmed position). Here we avoid the beginning case, where every sample would have a big coordinate gap from any static "starting" value of lastvalidpos
+                positions_stack.append((0,0)) #If there's a big difference between the last valid position when beginning a new sequence, we append 0,0 to avoid appending wrong information to the ball position array
+                prevpos = (0,0)
+                pos_counter += 1
+                return
+            else: #beginning of the detection: we accept the first 3 samples since there's no check on validity wrt previous ones we can perform
+                positions_stack.append((currpos))
+                prevpos = currpos
+                lastvalidpos = currpos
+                pos_counter += 1
+                return
+        else: 
+            sequence = True #After 3 valid samples, we go on as a sequence
+            beginning = False #After the first 3 valid samples we pass the beginning phase     
+
+        # In-sequence processing
+        if (abs(currpos[0]-prevpos[0]) > 100 or abs(currpos[1]-prevpos[1]) > 100) and sequence : #Detection happens during a sequence, but with noise: we put a zero value to allow interpolation to best estimate it from neighbor samples
+            positions_stack.append((0,0))
+            prevpos = (0,0)
+            sequence = False
+            return
+        else: #Valid detection during sequence
+            lastvalidpos = currpos
+            positions_stack.append((currpos))
+            prevpos = currpos
     
+    #No detection in current frame
+    else: 
+        positions_stack.append((0,0))
+        prevpos = (0,0)
+        pos_counter = 0
+        sequence = False
 
 def select_points(image):
     # Display the image and allow the user to select points
@@ -185,53 +239,118 @@ def calculate_homography(image_points, field_points, field_length, field_width):
 
     return homography
 
+def get_total_frames(video_path):
+    clip = VideoFileClip(video_path)
+    total_frames = clip.reader.nframes
+    clip.close()
+    return total_frames
+
 def interpolate_missing_values(coords):
     jump = 5
     interval = jump*2
     numofcoords = len(coords)
+    #print(f"\nTO INTERPOLATE ON: {numofcoords} coordinates")
     interpolated = []
 
     index = 0
-    while coords(index) == (0,0):
+    while coords[index] == (0,0):
         index += 1
+        #print("\nJUMP\n")
+
     index += jump
     oversampling = 0
-    while index < numofcoords-1:
+    k = 0
+    while index+jump+oversampling-1 < numofcoords:
+        #print(f"\nTO INTERPOLATE ON: {numofcoords} coordinates")
+        #print(f"\nINTERPOLATION LOOP {k}\n")
+        #print(f"Index: {index}\n")
+        #print(f"Oversampling: {oversampling}\n")
+        
+        k += 1
+        subpositions = []
+        for x in range(index-jump, index+jump+oversampling):
+            subpositions.append(coords[x]) #interval array from coords -> ..........,[X,X,X,X,X,JUMP,X,X,X,X,OVERSAMPLING],............
 
-        subpositions = [(x, y) for x,y in coords[index-jump:index+jump+oversampling-1]] #interval array from coords -> ..........,[X,X,X,X,X,JUMP,X,X,X,X,OVERSAMPLING],............
+        #print(f"Length of subpos: {len(subpositions)}\n")
+
+        #for x in subpositions:
+        #    print(x)
+
         if all((item != (0,0)) for item in subpositions): #Skip if all values in interval exist already (no interpolation necessary)
             oversampling = 0
             index += jump
+            #print("\n--> ALL VALUES THERE\n")
             continue
 
-        if all((item == (0,0) for item in subpositions[index:index+jump+oversampling-1])): #If all 5 new samples analyzed are null (interpolation might be imprecise), restart interval interpolation considering one more sample appended on the right
+        all_zeros = True
+        #print("\nsubposition considered:")
+        #for x in range(index, index+jump+oversampling):
+        #    print(subpositions[x-index])
+
+        for h in range(index, index+jump+oversampling): #If all 5 new samples analyzed are null (interpolation might be imprecise), restart interval interpolation considering one more sample appended on the right
+            if subpositions[h-index+jump] != (0,0):
+                #print("\nTrue value detected")
+                all_zeros = False
+                break
+        if all_zeros:
             oversampling += 1
+            #print("\n--> TOO MANY ZEROS => OVERSAMPLING\n")
             continue
+        
 
-        #Estraction of non-zero values to create interpolation function
+        # Estraction of non-zero values to create interpolation function
         non_zero_coords = [(x, y) for x, y in subpositions if (x, y) != (0, 0)]
-        zero_indices = [i for i, point in subpositions if point == (0, 0)]
+        #zero_indices = [i for i, point in subpositions if point == (0, 0)]
+        
         x_values = [x for x, _ in non_zero_coords]
         y_values = [y for _, y in non_zero_coords] 
 
-        #Creation of time axis for the considered interval
-        t_axis = np.linspace(1, interval+oversampling, interval+oversampling, dtype=int) #axis of time to interpolate
+        #print("\nMARK 1")
+        #for c in non_zero_coords:
+        #    print(c)
+
+        # Creation of time axis for the considered interval
+        t_axis = []
+        #print("\nMARK 2")
+        t_inst = 0
+        lenghtsubpos = len(subpositions)
+        while t_inst < lenghtsubpos:
+            if subpositions[t_inst] != (0,0):
+                t_axis.append(t_inst)    
+            t_inst += 1
+
+        zero_indices = []
+        t_inst = 0
+        while t_inst < lenghtsubpos:
+            if subpositions[t_inst] == (0,0):
+                zero_indices.append(t_inst)    
+            t_inst += 1
+
+        #print(f"Lent: {len(t_axis)}")
+        #print(f"Lenx: {len(x_values)}")
+        #print(f"Leny: {len(y_values)}")
 
         #Creation of function over x values
-        x_interp_func = interp1d(t_axis, x_values, kind='spline', fill_value='extrapolate')
+        x_interp_func = interp1d(t_axis, x_values, kind='slinear', fill_value='extrapolate') #spline interpolation function
 
         #Creation of function over y values
-        y_interp_func = interp1d(t_axis, y_values, kind='spline', fill_value='extrapolate')
+        y_interp_func = interp1d(t_axis, y_values, kind='slinear', fill_value='extrapolate') #spline interpolation function
 
-        # Riempimento dei valori (0, 0) interpolati
+        # Interpolation of missing (zero) values
         for i in zero_indices:
-            x_interp_value = x_interp_func(i)
-            y_interp_value = y_interp_func(i)
-            subpositions[i] = (x_interp_value, y_interp_value)    
+            x_interp_value = int(x_interp_func(i))
+            y_interp_value = int(y_interp_func(i))
+            coords[i+index-jump] = (x_interp_value, y_interp_value) 
+            #print(f"Result of interpolation: {x_interp_value}, {y_interp_value}\n")
+        
+        for i in zero_indices: #Ottimizzabile
+            if i+index-jump not in interpolated:
+                interpolated.append(i+index-jump)
 
         oversampling = 0
         index += jump
 
+    return interpolated
 
 ############################### MAIN ####################################
 field_length = 23.78 #meters
@@ -261,7 +380,12 @@ homography_matrix_inv = np.linalg.inv(homography_matrix)
 # Ball trajectory util
 positions_stack = [] #stack to compute values in thread
 ball_positions = [] #array of the trajectory in the image
-ball_positions_real = [] #
+ball_positions_real = [] #array of the top-view trajectory in the image
+prevpos = (0,0)
+lastvalidpos = (0,0)
+pos_counter = 0
+sequence = False
+beginning = True
 
 ############## Task 2 ###################
 # Font characteristics for the coordinates display 
@@ -281,7 +405,9 @@ threshold_moving = 5
 ############## Task 3 ###################
 
 # Loading of the clip to analyze
-cap = cv2.VideoCapture("resources/tennis2.mp4")
+video_path = "resources/tennis2.mp4"
+total_frames = get_total_frames(video_path)
+cap = cv2.VideoCapture(video_path)
 
 mpPose_A = mp.solutions.pose
 pose_A = mpPose_A.Pose()
@@ -306,40 +432,13 @@ rectified_image = cv2.warpPerspective(image, homography_matrix, (image.shape[1],
 
 # Allocation to write the resulting evaluation in a video file at the end
 # Maybe width has to be changed : TODO
-result = cv2.VideoWriter('result2.mp4',
+result = cv2.VideoWriter('raw.mp4',
                          cv2.VideoWriter_fourcc(*'mp4v'),
                          60, (image.shape[1] + rectified_image.shape[1], 720))
 
 ball_detector = BallDetector('TRACE/TrackNet/Weights.pth', out_channels=2)
 
-"""
-while cv2.waitKey(1) < 0:
-    hasFrame, frame = cap.read()
-    if not hasFrame:
-        # cv2.waitKey()
-        break
-    cTime = time.time()
-    
-    
-    
-    pTime = 0.00001+time.time()
-
-    fps = 1/(cTime-pTime)
-    
-    cv2.putText(frame, str(int(fps)), (50,50), cv2.FONT_HERSHEY_SIMPLEX,1,(255,0,0), 3)
-
-    #combining the two images 
-    height = max(frame.shape[0], rectified_image.shape[0])
-
-    frame = cv2.resize(frame, (int(frame.shape[1] * height / frame.shape[0]), height))
-    rectified_image = cv2.resize(rectified_image, (int(rectified_image.shape[1] * height / rectified_image.shape[0]), height))
-    rectified_image = cv2.cvtColor(rectified_image, cv2.COLOR_RGB2BGR)
-
-    combined_image = cv2.hconcat([frame, rectified_image])
-    cv2.imshow('Combined Images', combined_image)
-    result.write(combined_image)
-"""
-print("\nballpos: [")
+print("\nBall positions detected:")
 i=0
 while cv2.waitKey(1) < 0:
     hasFrame, frame = cap.read()
@@ -347,8 +446,7 @@ while cv2.waitKey(1) < 0:
         # cv2.waitKey()
         break
     cTime = time.time()
-    print(f"({i}):")
-    i+=1
+
     #changing the rectified image to "clean" it from the previous drawings of the center
     rectified_image = cv2.warpPerspective(image, homography_matrix, (image.shape[1], image.shape[0]))
 
@@ -358,7 +456,7 @@ while cv2.waitKey(1) < 0:
     #creating two threads to improve performances for the detection of the pose
     th_A = threading.Thread(target=computePoseAndAnkles, args=(cropped_frame_A, stationary_points_A, mpPose_A, pose_A, mpDraw_A, homography_matrix, prev_PrightA_image, prev_PleftA_image, threshold_moving, 100, 400, rectified_image))
     th_B = threading.Thread(target=computePoseAndAnkles, args=(cropped_frame_B, stationary_points_B, mpPose_B, pose_B, mpDraw_B, homography_matrix, prev_PrightB_image, prev_PleftB_image, threshold_moving, 390,  90, rectified_image))
-    th_C = threading.Thread(target=processBallTrajectory, args=(ball_detector, frame, positions_stack.copy()))
+    th_C = threading.Thread(target=processBallTrajectory, args=(ball_detector, frame, positions_stack))
     
     th_A.start()
     th_B.start()
@@ -378,10 +476,9 @@ while cv2.waitKey(1) < 0:
     if ballpos != (0,0):
         cv2.circle(frame, ballpos, 5, (0, 255, 0), cv2.FILLED)
     ball_positions.append(ballpos)
-    print(f"{ballpos}, ")
-
-    interpolated_samples = interpolate_missing_values(ball_positions)
-    cv2.circle(frame, ball_positions[i], 2.5, (255, 0, 0), cv2.FILLED)
+    percent = i/total_frames*100
+    print(f"FRAME {i}: {ballpos}; - {percent:.1f}%")
+    i += 1
 
     # Putting ball position into perspective
     #real_ball_pos = cv2.perspectiveTransform(ballpos, homography_matrix)
@@ -400,10 +497,48 @@ while cv2.waitKey(1) < 0:
     cv2.imshow('Combined Images', combined_image)
     result.write(combined_image)
 
+cap.release()
+result.release()
+cv2.destroyAllWindows()
+
+#print("DETECTED POSITIONS")
+#for l in ball_positions:
+#    print(l)
+
+if i < total_frames:
+    print("Execution stopped by user")
+    sys.exit()
+
+interpolated_samples = interpolate_missing_values(ball_positions)
+print("\nInterpolation:\n")
+for r in interpolated_samples:
+    print(f"FRAME: {r}")
+    print(f"--> {ball_positions[r]}")
+
+cap = cv2.VideoCapture("raw.mp4")
+
+result = cv2.VideoWriter('processed.mp4',
+                         cv2.VideoWriter_fourcc(*'mp4v'),
+                         60, (image.shape[1] + rectified_image.shape[1], 720))
+
+print("\nInterpolation Completed. Drawing...\n")
+
+j = 0
+while cv2.waitKey(1) < 0:
+    percent = j/i*100
+    print(f"{percent:.1f}%")
+    hasFrame, frame = cap.read()
+    if not hasFrame:
+        break
+    
+    if j in interpolated_samples:
+        cv2.circle(frame, ball_positions[j], 7, (0, 0, 255), cv2.FILLED)   
+        cv2.imshow(f'Frame Interpolated: {j}', frame)
+    
+    result.write(frame) 
+    j +=1
 
 cap.release()
 result.release()
-# Closes all the frames
 cv2.destroyAllWindows()
-
-print("The video was successfully saved")
+print("The video was successfully processed")

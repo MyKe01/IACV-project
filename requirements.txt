@@ -2,3 +2,5 @@ opencv-python
 numpy
 matplotlib
 mediapipe
+torch
+moviepy
