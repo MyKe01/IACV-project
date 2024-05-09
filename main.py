@@ -177,46 +177,208 @@ def processBallTrajectory (BallDetector, frame, positions_stack):
         pos_counter = 0
         sequence = False
 
-def select_points(image):
-    # Display the image and allow the user to select points
-    plt.imshow(image)
-    plt.title("Select points by clicking, press any key when done.")
-    points = plt.ginput(n=-1, timeout=0, show_clicks=True) #GINPUT Allows selecting the points through the mouse 
-    plt.close()
-    return np.array(points) #x and y points 
 
-def draw_lines(image, points):
-    # Create a copy of the image to draw lines on
-    image_with_lines = np.copy(image)
+def determinant(a, b):
+    return a[0] * b[1] - a[1] * b[0]
+    
+def findIntersection(line1, line2, xStart, yStart, xEnd, yEnd):
+    xDiff = (line1[0][0]-line1[1][0],line2[0][0]-line2[1][0])
+    yDiff = (line1[0][1]-line1[1][1],line2[0][1]-line2[1][1])
+    div = determinant(xDiff, yDiff)
+    if div == 0:
+        return None
+    d = (determinant(*line1), determinant(*line2))
+    x = int(determinant(d, xDiff) / div)
+    y = int(determinant(d, yDiff) / div)
+    if (x<xStart) or (x>xEnd):
+        return None
+    if (y<yStart) or (y>yEnd):
+        return None
+    return x,y
 
-    # Convert the points to integer coordinates
-    points = points.astype(int)
+def autoComputeHomography(video):
 
-    # Draw lines between consecutive points
-    for i in range(len(points) - 1):
-        cv2.line(image_with_lines, tuple(points[i]), tuple(points[i+1]), (0, 255, 0), 2)
+    width = int(video.get(3))
+    height = int(video.get(4))
 
-    # Draw a line between the last and first points to close the loop
-    cv2.line(image_with_lines, tuple(points[-1]), tuple(points[0]), (0, 255, 0), 2)
+    # Setting reference frame lines
+    extraLen = width/3
 
-    return image_with_lines
+    class axis:
+        top = [[-extraLen,0],[width+extraLen,0]]
+        right = [[width+extraLen,0],[width+extraLen,height]]
+        bottom = [[-extraLen,height],[width+extraLen,height]]
+        left = [[-extraLen,0],[-extraLen,height]]
 
-def create_lines(points):
-    # Convert the points to integer coordinates
-    points = points.astype(int) #convert to integer
+        
+    # Setting comparison points
+    NtopLeftP = None
+    NtopRightP = None
+    NbottomLeftP = None
+    NbottomRightP = None
+    
+    hasFrame, frame = cap.read()
+    if hasFrame:
+         # Apply filters that removes noise and simplifies image
+        gry = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        bw = cv2.threshold(gry, 156, 255, cv2.THRESH_BINARY)[1]
+        canny = cv2.Canny(bw, 100, 200)
+        # Copy edges to the images that will display the results in BGR
+        cdst = cv2.cvtColor(canny, cv2.COLOR_GRAY2BGR)
+        cdstP = np.copy(cdst)                  
+        # Using hough lines probablistic to find lines with most intersections
+        hPLines = cv2.HoughLinesP(canny, 1, np.pi/180, threshold=150, minLineLength=100, maxLineGap=10)
+        intersectNum = np.zeros((len(hPLines),2))  
+         # Draw the lines
+        if hPLines is not None:
+            for i in range(0, len(hPLines)):
+                l = hPLines[i][0]
+                cv2.line(cdstP, (l[0], l[1]), (l[2], l[3]), (0,0,255), 3, cv2.LINE_AA)
+        i = 0
+        for hPLine1 in hPLines:
+            Line1x1, Line1y1, Line1x2, Line1y2 = hPLine1[0]
+            Line1 = [[Line1x1,Line1y1],[Line1x2,Line1y2]]
+            for hPLine2 in hPLines:
+                Line2x1, Line2y1, Line2x2, Line2y2 = hPLine2[0]
+                Line2 = [[Line2x1,Line2y1],[Line2x2,Line2y2]]
+                if Line1 is Line2:
+                    continue
+                if Line1x1>Line1x2:
+                    temp = Line1x1
+                    Line1x1 = Line1x2
+                    Line1x2 = temp
 
-    lines = []
+                if Line1y1>Line1y2:
+                    temp = Line1y1
+                    Line1y1 = Line1y2
+                    Line1y2 = temp
 
-    # Create lines between consecutive points
-    for i in range(len(points) - 1):
-        line = (tuple(points[i]), tuple(points[i+1]))
-        lines.append(line)
+                intersect = findIntersection(Line1, Line2, Line1x1-200, Line1y1-200, Line1x2+200, Line1y2+200)
+                if intersect is not None:
+                    intersectNum[i][0] += 1
+            intersectNum[i][1] = i
+            i += 1
 
-    # Create a line between the last and first points to close the loop
-    line = (tuple(points[-1]), tuple(points[0])) #from 2 points get a line
-    lines.append(line)
+             # Lines with most intersections get a fill mask command on them
+        i = p = 0
+        dilation = cv2.dilate(bw, np.ones((5, 5), np.uint8), iterations=1)
+        nonRectArea = dilation.copy()
+        intersectNum = intersectNum[(-intersectNum)[:, 0].argsort()]
+        for hPLine in hPLines:
+            x1,y1,x2,y2 = hPLine[0]
+            # line(frame, (x1,y1), (x2,y2), (255, 255, 0), 2)
+            for p in range(8):
+                if (i==intersectNum[p][1]) and (intersectNum[i][0]>0):
+                    #cv2.line(frame, (x1,y1), (x2,y2), (0, 0, 255), 2)
+                    cv2.floodFill(nonRectArea, np.zeros((height+2, width+2), np.uint8), (x1, y1), 1) 
+                    cv2.floodFill(nonRectArea, np.zeros((height+2, width+2), np.uint8), (x2, y2), 1) 
+            i+=1
 
-    return lines
+
+        dilation[np.where(nonRectArea == 255)] = 0
+        dilation[np.where(nonRectArea == 1)] = 255
+        eroded = cv2.erode(dilation, np.ones((5, 5), np.uint8)) 
+        cannyMain = cv2.Canny(eroded, 90, 100)
+
+         # Extreme lines found every frame
+        xOLeft = width + extraLen
+        xORight = 0 - extraLen
+        xFLeft = width + extraLen
+        xFRight = 0 - extraLen
+
+        yOTop = height
+        yOBottom = 0
+        yFTop = height
+        yFBottom = 0
+
+        # Finding all lines then allocate them to specified extreme variables
+        hLines = cv2.HoughLines(cannyMain, 2, np.pi/180, 300)
+        for hLine in hLines:
+            for rho,theta in hLine:
+                a = np.cos(theta)
+                b = np.sin(theta)
+                x0 = a*rho
+                y0 = b*rho
+                x1 = int(x0 + width*(-b))
+                y1 = int(y0 + width*(a))
+                x2 = int(x0 - width*(-b))
+                y2 = int(y0 - width*(a))
+
+                # Furthest intersecting point at every axis calculations done here
+                intersectxF = findIntersection(axis.bottom, [[x1,y1],[x2,y2]], -extraLen, 0, width+extraLen, height)
+                intersectyO = findIntersection(axis.left, [[x1,y1],[x2,y2]], -extraLen, 0, width+extraLen, height)
+                intersectxO = findIntersection(axis.top, [[x1,y1],[x2,y2]], -extraLen, 0, width+extraLen, height)
+                intersectyF = findIntersection(axis.right, [[x1,y1],[x2,y2]], -extraLen, 0, width+extraLen, height)
+
+                if (intersectxO is None) and (intersectxF is None) and (intersectyO is None) and (intersectyF is None):
+                    continue
+                
+                if intersectxO is not None:
+                    if intersectxO[0] < xOLeft:
+                        xOLeft = intersectxO[0]
+                        xOLeftLine = [[x1,y1],[x2,y2]]
+                    if intersectxO[0] > xORight:
+                        xORight = intersectxO[0]
+                        xORightLine = [[x1,y1],[x2,y2]]
+                if intersectyO is not None:
+                    if intersectyO[1] < yOTop:
+                        yOTop = intersectyO[1]
+                        yOTopLine = [[x1,y1],[x2,y2]]
+                    if intersectyO[1] > yOBottom:
+                        yOBottom = intersectyO[1]
+                        yOBottomLine = [[x1,y1],[x2,y2]]
+
+                if intersectxF is not None:
+                    if intersectxF[0] < xFLeft:
+                        xFLeft = intersectxF[0]
+                        xFLeftLine = [[x1,y1],[x2,y2]]
+                    if intersectxF[0] > xFRight:
+                        xFRight = intersectxF[0]
+                        xFRightLine = [[x1,y1],[x2,y2]]
+                if intersectyF is not None:
+                    if intersectyF[1] < yFTop:
+                        yFTop = intersectyF[1]
+                        yFTopLine = [[x1,y1],[x2,y2]]
+                    if intersectyF[1] > yFBottom:
+                        yFBottom = intersectyF[1]
+                        yFBottomLine = [[x1,y1],[x2,y2]]
+       # Top line has margin of error that effects all courtmapped outputs 
+        yOTopLine[0][1] = yOTopLine[0][1]+4
+        yOTopLine[1][1] = yOTopLine[1][1]+4
+
+        yFTopLine[0][1] = yFTopLine[0][1]+4
+        yFTopLine[1][1] = yFTopLine[1][1]+4
+
+        # Find four corners of the court and display it
+        topLeftP = findIntersection(xOLeftLine, yOTopLine, -extraLen, 0, width+extraLen, height)
+        topRightP = findIntersection(xORightLine, yFTopLine, -extraLen, 0, width+extraLen, height)
+        bottomLeftP = findIntersection(xFLeftLine, yOBottomLine, -extraLen, 0, width+extraLen, height)
+        bottomRightP = findIntersection(xFRightLine, yFBottomLine, -extraLen, 0, width+extraLen, height)
+
+        # If all corner points are different or something not found, rerun print
+        if (not(topLeftP == NtopLeftP)) and (not(topRightP == NtopRightP)) and (not(bottomLeftP == NbottomLeftP)) and (not(bottomRightP == NbottomRightP)):
+            #cv2.line(frame, topLeftP, topRightP, (0, 0, 255), 2)
+            #cv2.line(frame, bottomLeftP, bottomRightP, (0, 0, 255), 2)
+            #cv2.line(frame, topLeftP, bottomLeftP, (0, 0, 255), 2)
+            #cv2.line(frame, topRightP, bottomRightP, (0, 0, 255), 2)
+
+            #cv2.circle(frame, topLeftP, radius=0, color=(255, 0, 255), thickness=10)
+            #cv2.circle(frame, topRightP, radius=0, color=(255, 0, 255), thickness=10)
+            #cv2.circle(frame, bottomLeftP, radius=0, color=(255, 0, 255), thickness=10)
+            #cv2.circle(frame, bottomRightP, radius=0, color=(255, 0, 255), thickness=10)
+
+            NtopLeftP = topLeftP
+            NtopRightP = topRightP
+            NbottomLeftP = bottomLeftP
+            NbottomRightP = bottomRightP
+
+            points = [topLeftP, topRightP, bottomRightP, bottomLeftP]
+            # Calculate homography
+            homography_matrix = calculate_homography(np.array(points), points, field_length, field_width)
+
+            return homography_matrix
+
+
 
 
 def calculate_homography(image_points, field_points, field_length, field_width):
@@ -366,17 +528,6 @@ image_path = 'resources/frame.JPG'
 image = cv2.imread(image_path)
 image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB) #set the color from BGR to RGB
 
-# Select points
-points = select_points(image)
-# Create lines based on the selected points
-lines = create_lines(points)
-# Draw lines based on the selected points
-image_with_lines = draw_lines(image, points)
-
-# Calculate homography
-homography_matrix = calculate_homography(points, points, field_length, field_width)
-homography_matrix_inv = np.linalg.inv(homography_matrix)
-
 # Ball trajectory util
 positions_stack = [] #stack to compute values in thread
 ball_positions = [] #array of the trajectory in the image
@@ -408,6 +559,9 @@ threshold_moving = 5
 video_path = "resources/tennis2.mp4"
 total_frames = get_total_frames(video_path)
 cap = cv2.VideoCapture(video_path)
+
+# Calculate homography
+homography_matrix = autoComputeHomography(cap)
 
 mpPose_A = mp.solutions.pose
 pose_A = mpPose_A.Pose()
