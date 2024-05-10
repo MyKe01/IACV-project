@@ -529,12 +529,14 @@ def interpolate_missing_values(coords):
 
     return interpolated
 
-def detect_racket_hits(ball_positions, threshold):
+def detect_racket_hits(ball_positions):
     hits = []
-    velocities = np.gradient(ball_positions[:, 1])  # Calcolo della derivata rispetto all'asse verticale
+    ball_positions_array = np.array(ball_positions)
+    velocities = np.gradient(ball_positions_array[:, 1])  # Calcolo della derivata rispetto all'asse verticale
     for i in range(1, len(ball_positions)):
-        if velocities[i] - velocities[i-1] > threshold:
-            hits.append(i)
+        if (velocities[i] >= 0 and velocities[i-1] < 0) or (velocities[i] < 0 and velocities[i-1] >= 0):
+            if velocities[i+1] >= 0 and velocities[i-2] < 0 or velocities[i+1] < 0 and velocities[i-2] >= 0:
+                hits.append(i)
     return hits
 
 
@@ -630,6 +632,7 @@ NbottomRightP = None
 startofprocessing = True
 res_height = 0
 res_width = 0
+rect_height = 0
 while cv2.waitKey(1) < 0:
     hasFrame, frame = cap.read()
     if not hasFrame:
@@ -693,7 +696,7 @@ while cv2.waitKey(1) < 0:
 
     # Appending the perspective image on the side
     height = max(frame.shape[0], rectified_image.shape[0])
-
+    rect_height = height
     frame = cv2.resize(frame, (int(frame.shape[1] * height / frame.shape[0]), height))
     rectified_image = cv2.resize(rectified_image, (int(rectified_image.shape[1] * height / rectified_image.shape[0]), height))
     rectified_image = cv2.cvtColor(rectified_image, cv2.COLOR_RGB2BGR)
@@ -701,6 +704,7 @@ while cv2.waitKey(1) < 0:
     combined_image = cv2.hconcat([frame, rectified_image])
     cv2.imshow('Combined Images', combined_image)
     result.write(combined_image)
+    if i > 250: break
 
 cap.release()
 result.release()
@@ -710,9 +714,9 @@ cv2.destroyAllWindows()
 #for l in ball_positions:
 #    print(l)
 
-if i < total_frames:
-    print("Execution stopped by user")
-    sys.exit()
+#if i < total_frames:
+#    print("Execution stopped by user")
+#    sys.exit()
 
 interpolated_samples = interpolate_missing_values(ball_positions)
 print("\nInterpolation:\n")
@@ -730,19 +734,21 @@ print("\nInterpolation Completed. Drawing...\n")
 
 j = 0
 while cv2.waitKey(1) < 0:
-    percent = j/i*100
-    print(f"{percent:.1f}%")
+    
     hasFrame, frame = cap.read()
     if not hasFrame:
         break
+    
+    percent = j/i*100
+    print(f"{percent:.1f}%")
 
     if j in interpolated_samples:
         #Regular Pitch View: adding of interpolated ball position
         original_frame_extr = frame[0:res_height,0:res_width]
-        cv2.circle(original_frame_extr, interpolatedballpos, 7, (0, 0, 255), cv2.FILLED) 
+        cv2.circle(original_frame_extr, ball_positions[j], 7, (0, 0, 255), cv2.FILLED) 
 
         #Top Pitch View: adding of interpolated ball position
-        rectified_image_extr = frame[res_height+1:frame.shape[0], res_height+1:frame.shape[1]]
+        rectified_image_extr = frame[0:res_height, res_width+1:frame.shape[1]]
         interpolatedballpos = ball_positions[j]
         ballpos_array = np.array([[interpolatedballpos[0], interpolatedballpos[1]]], dtype=np.float32)
         ballpos_array = np.reshape(ballpos_array, (1,1,2))
@@ -750,17 +756,34 @@ while cv2.waitKey(1) < 0:
         ballpos_real = (round(transformedpos[0][0][0]), round(transformedpos[0][0][1]))
         cv2.circle(rectified_image_extr, ballpos_real , 5, (255, 255, 0), cv2.FILLED)
 
+        #height = max(frame.shape[0], rectified_image_extr.shape[0])
+        #original_frame_extr = cv2.resize(original_frame_extr, (int(original_frame_extr.shape[1] * height / original_frame_extr.shape[0]), height))
+        #rectified_image = cv2.resize(rectified_image_extr, (int(rectified_image_extr.shape[1] * height / rectified_image_extr.shape[0]), height))
         frame = cv2.hconcat([original_frame_extr, rectified_image_extr])
-        cv2.imshow(f'Frame Interpolated: {j}', frame)
+        #cv2.imshow(f'Frame Interpolated: {j}', frame)
     
     result.write(frame) 
     j +=1
 
-threshold = 2  # soglia per il rilevamento dei colpi di racchetta
+racket_hits = detect_racket_hits(ball_positions)
+print("Detected racket hits:", racket_hits)
+j = 0
+hits = 0
+while cv2.waitKey(1) < 0:
+    
+    hasFrame, frame = cap.read()
+    if not hasFrame:
+        break
+    
+    percent = j/i*100
+    print(f"{percent:.1f}%")
 
-racket_hits = detect_racket_hits(ball_positions, threshold)
-print("Colpi di racchetta rilevati nei frame:", racket_hits)
-
+    if j in racket_hits:
+        hits += 1
+        cv2.putText(frame, f"Racket Hits: {hits}", (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0,255,0), 2)
+    
+    result.write(frame) 
+    j +=1
 
 cap.release()
 result.release()
