@@ -196,10 +196,12 @@ def findIntersection(line1, line2, xStart, yStart, xEnd, yEnd):
         return None
     return x,y
 
-def autoComputeHomography(video):
+def autoComputeHomography(video, frm, NtopLeftP, NtopRightP, NbottomLeftP, NbottomRightP):
 
     width = int(video.get(3))
     height = int(video.get(4))
+
+    threshold = 10
 
     # Setting reference frame lines
     extraLen = width/3
@@ -357,26 +359,45 @@ def autoComputeHomography(video):
 
         # If all corner points are different or something not found, rerun print
         if (not(topLeftP == NtopLeftP)) and (not(topRightP == NtopRightP)) and (not(bottomLeftP == NbottomLeftP)) and (not(bottomRightP == NbottomRightP)):
-            #cv2.line(frame, topLeftP, topRightP, (0, 0, 255), 2)
-            #cv2.line(frame, bottomLeftP, bottomRightP, (0, 0, 255), 2)
-            #cv2.line(frame, topLeftP, bottomLeftP, (0, 0, 255), 2)
-            #cv2.line(frame, topRightP, bottomRightP, (0, 0, 255), 2)
+            
 
-            #cv2.circle(frame, topLeftP, radius=0, color=(255, 0, 255), thickness=10)
-            #cv2.circle(frame, topRightP, radius=0, color=(255, 0, 255), thickness=10)
-            #cv2.circle(frame, bottomLeftP, radius=0, color=(255, 0, 255), thickness=10)
-            #cv2.circle(frame, bottomRightP, radius=0, color=(255, 0, 255), thickness=10)
+            if(NtopLeftP == None or np.linalg.norm(np.array(NtopLeftP) - np.array(topLeftP)) < threshold) : 
+                NtopLeftP = topLeftP
+            if(NtopRightP == None or np.linalg.norm(np.array(NtopRightP) - np.array(topRightP)) < threshold) : 
+                NtopRightP = topRightP
+            if(NbottomLeftP == None or np.linalg.norm(np.array(NbottomLeftP) - np.array(bottomLeftP)) < threshold) : 
+                NbottomLeftP = bottomLeftP
+            if(NbottomRightP == None or np.linalg.norm(np.array(NbottomRightP) - np.array(bottomRightP)) < threshold) : 
+                NbottomRightP = bottomRightP
+            
+            if frm is not None : 
+                cv2.line(frm, NtopLeftP, NtopRightP, (0, 0, 255), 2)
+                cv2.line(frm, NbottomLeftP, NbottomRightP, (0, 0, 255), 2)
+                cv2.line(frm, NtopLeftP, NbottomLeftP, (0, 0, 255), 2)
+                cv2.line(frm, NtopRightP, NbottomRightP, (0, 0, 255), 2)
 
-            NtopLeftP = topLeftP
-            NtopRightP = topRightP
-            NbottomLeftP = bottomLeftP
-            NbottomRightP = bottomRightP
+                cv2.circle(frm, NtopLeftP, radius=0, color=(255, 0, 255), thickness=10)
+                cv2.circle(frm, NtopRightP, radius=0, color=(255, 0, 255), thickness=10)
+                cv2.circle(frm, NbottomLeftP, radius=0, color=(255, 0, 255), thickness=10)
+                cv2.circle(frm, NbottomRightP, radius=0, color=(255, 0, 255), thickness=10)
 
-            points = [topLeftP, topRightP, bottomRightP, bottomLeftP]
+            points = [NtopLeftP, NtopRightP, NbottomRightP, NbottomLeftP]
             # Calculate homography
             homography_matrix = calculate_homography(np.array(points), points, field_length, field_width)
-
             return homography_matrix
+
+        else:
+             if frm is not None : 
+                cv2.line(frm, NtopLeftP, NtopRightP, (0, 0, 255), 2)
+                cv2.line(frm, NbottomLeftP, NbottomRightP, (0, 0, 255), 2)
+                cv2.line(frm, NtopLeftP, NbottomLeftP, (0, 0, 255), 2)
+                cv2.line(frm, NtopRightP, NbottomRightP, (0, 0, 255), 2)
+            
+                cv2.circle(frm, NtopLeftP, radius=0, color=(255, 0, 255), thickness=10)
+                cv2.circle(frm, NtopRightP, radius=0, color=(255, 0, 255), thickness=10)
+                cv2.circle(frm, NbottomLeftP, radius=0, color=(255, 0, 255), thickness=10)
+                cv2.circle(frm, NbottomRightP, radius=0, color=(255, 0, 255), thickness=10)
+             
 
 
 
@@ -560,8 +581,9 @@ video_path = "resources/tennis2.mp4"
 total_frames = get_total_frames(video_path)
 cap = cv2.VideoCapture(video_path)
 
+
 # Calculate homography
-homography_matrix = autoComputeHomography(cap)
+homography_matrix = autoComputeHomography(cap,None, None, None, None, None)
 
 mpPose_A = mp.solutions.pose
 pose_A = mpPose_A.Pose()
@@ -594,6 +616,12 @@ ball_detector = BallDetector('TRACE/TrackNet/Weights.pth', out_channels=2)
 
 print("\nBall positions detected:")
 i=0
+
+#parameters for comparison in court detection
+NtopLeftP = None
+NtopRightP = None
+NbottomLeftP = None
+NbottomRightP = None
 while cv2.waitKey(1) < 0:
     hasFrame, frame = cap.read()
     if not hasFrame:
@@ -601,6 +629,8 @@ while cv2.waitKey(1) < 0:
         break
     cTime = time.time()
 
+    #no item returned since it is just to show live court detection (too noisy to make live computation of homography)
+    autoComputeHomography(cap, frame, NtopLeftP, NtopRightP, NbottomLeftP, NbottomRightP)
     #changing the rectified image to "clean" it from the previous drawings of the center
     rectified_image = cv2.warpPerspective(image, homography_matrix, (image.shape[1], image.shape[0]))
 
