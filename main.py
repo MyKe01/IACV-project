@@ -7,10 +7,11 @@
 # |_____/_/    \_\_____|   \/     |_|   |_|  \___/| |\___|\___|\__|
 #                                                _/ |              
 #                                               |__/               
-# Project completed by Paolo Riva, Michelangelo Stasi, Mihai-Viorel Grecu
-# This Computer Vision project aims at detecting two players involved in a tennis match through the widely-used Human Pose Detection method.
+# Project developed by Paolo Riva, Michelangelo Stasi, Mihai-Viorel Grecu c/o Politecnico di Milano
+# Course: Image Analysis and Computer Vison - A.A. 2023/24
+# This Computer Vision project aims at detecting data in a tennis match through the widely-used Human Pose Detection method and the TRACE methon for ball detection.
 #
-# The program focuses on detecting the movement performed by the players, specifically:
+# The program focuses specifically on the following tasks:
 # 0. Identify the field lines and, knowing the field measures, find yhe homography H from field to image.
 # 1. Use the well-known Human Pose Estimation  method (based on Deep Learning) to identify the articulated segments of the player.
 # 2. Select the feet (end points of the leg segments) and their position Pleft and Pright in each image
@@ -36,13 +37,6 @@ from TRACE.BallDetection import BallDetector
 from TRACE.BallMapping import euclideanDistance, withinCircle
 from moviepy.editor import VideoFileClip
 ##################################################################
-
-#Global Variables
-sequence = False
-prevpos = (0,0)
-pos_counter = 0
-lastvalidpos = (0,0)
-beginning = True
 
 def computePoseAndAnkles(cropped_frame, static_centers_queue, mpPose, pose, mpDraw, hom_matrix, prev_right_ankle, prev_left_ankle, threshold, x_offset, y_offset, rect_img):
 
@@ -535,6 +529,15 @@ def interpolate_missing_values(coords):
 
     return interpolated
 
+def detect_racket_hits(ball_positions, threshold):
+    hits = []
+    velocities = np.gradient(ball_positions[:, 1])  # Calcolo della derivata rispetto all'asse verticale
+    for i in range(1, len(ball_positions)):
+        if velocities[i] - velocities[i-1] > threshold:
+            hits.append(i)
+    return hits
+
+
 ############################### MAIN ####################################
 field_length = 23.78 #meters
 field_width = 10.97 #meters
@@ -551,6 +554,7 @@ image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB) #set the color from BGR to RGB
 
 # Ball trajectory util
 positions_stack = [] #stack to compute values in thread
+realposition_buffer = []
 ball_positions = [] #array of the trajectory in the image
 ball_positions_real = [] #array of the top-view trajectory in the image
 prevpos = (0,0)
@@ -614,6 +618,7 @@ result = cv2.VideoWriter('raw.mp4',
 
 ball_detector = BallDetector('TRACE/TrackNet/Weights.pth', out_channels=2)
 
+# First Main Loop
 print("\nBall positions detected:")
 i=0
 
@@ -622,11 +627,18 @@ NtopLeftP = None
 NtopRightP = None
 NbottomLeftP = None
 NbottomRightP = None
+startofprocessing = True
+res_height = 0
+res_width = 0
 while cv2.waitKey(1) < 0:
     hasFrame, frame = cap.read()
     if not hasFrame:
         # cv2.waitKey()
         break
+    if startofprocessing: #We extract the source resolution from the first available frame
+        res_height, res_width, _ = frame.shape 
+        startofprocessing = False
+    
     cTime = time.time()
 
     #no item returned since it is just to show live court detection (too noisy to make live computation of homography)
@@ -657,9 +669,18 @@ while cv2.waitKey(1) < 0:
     
     frame[350:720, 100:1100] = cropped_frame_A
     frame[90:250, 390:855] = cropped_frame_B
+
+    ballpos_real = (0,0)
     if ballpos != (0,0):
         cv2.circle(frame, ballpos, 5, (0, 255, 0), cv2.FILLED)
+        ballpos_array = np.array([[ballpos[0], ballpos[1]]], dtype=np.float32)
+        ballpos_array = np.reshape(ballpos_array, (1,1,2))
+        transformedpos = cv2.perspectiveTransform(ballpos_array, homography_matrix)
+        ballpos_real = (round(transformedpos[0][0][0]), round(transformedpos[0][0][1]))
+        cv2.circle(rectified_image, ballpos_real , 5, (255, 255, 0), cv2.FILLED)
     ball_positions.append(ballpos)
+    ball_positions_real.append(ballpos_real)
+
     percent = i/total_frames*100
     print(f"FRAME {i}: {ballpos}; - {percent:.1f}%")
     i += 1
@@ -714,13 +735,32 @@ while cv2.waitKey(1) < 0:
     hasFrame, frame = cap.read()
     if not hasFrame:
         break
-    
+
     if j in interpolated_samples:
-        cv2.circle(frame, ball_positions[j], 7, (0, 0, 255), cv2.FILLED)   
+        #Regular Pitch View: adding of interpolated ball position
+        original_frame_extr = frame[0:res_height,0:res_width]
+        cv2.circle(original_frame_extr, interpolatedballpos, 7, (0, 0, 255), cv2.FILLED) 
+
+        #Top Pitch View: adding of interpolated ball position
+        rectified_image_extr = frame[res_height+1:frame.shape[0], res_height+1:frame.shape[1]]
+        interpolatedballpos = ball_positions[j]
+        ballpos_array = np.array([[interpolatedballpos[0], interpolatedballpos[1]]], dtype=np.float32)
+        ballpos_array = np.reshape(ballpos_array, (1,1,2))
+        transformedpos = cv2.perspectiveTransform(ballpos_array, homography_matrix)
+        ballpos_real = (round(transformedpos[0][0][0]), round(transformedpos[0][0][1]))
+        cv2.circle(rectified_image_extr, ballpos_real , 5, (255, 255, 0), cv2.FILLED)
+
+        frame = cv2.hconcat([original_frame_extr, rectified_image_extr])
         cv2.imshow(f'Frame Interpolated: {j}', frame)
     
     result.write(frame) 
     j +=1
+
+threshold = 2  # soglia per il rilevamento dei colpi di racchetta
+
+racket_hits = detect_racket_hits(ball_positions, threshold)
+print("Colpi di racchetta rilevati nei frame:", racket_hits)
+
 
 cap.release()
 result.release()
