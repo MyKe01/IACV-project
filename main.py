@@ -36,6 +36,8 @@ import time
 from TRACE.BallDetection import BallDetector
 from TRACE.BallMapping import euclideanDistance, withinCircle
 from moviepy.editor import VideoFileClip
+
+from player_detection.playerDetection import PlayersDetections
 ##################################################################
 
 def computePoseAndAnkles(cropped_frame, static_centers_queue, mpPose, pose, mpDraw, hom_matrix, prev_right_ankle, prev_left_ankle, threshold, x_offset, y_offset, rect_img):
@@ -207,12 +209,6 @@ def autoComputeHomography(video, frm, NtopLeftP, NtopRightP, NbottomLeftP, Nbott
         left = [[-extraLen,0],[-extraLen,height]]
 
         
-    # Setting comparison points
-    NtopLeftP = None
-    NtopRightP = None
-    NbottomLeftP = None
-    NbottomRightP = None
-    
     hasFrame, frame = cap.read()
     if hasFrame:
          # Apply filters that removes noise and simplifies image
@@ -392,10 +388,6 @@ def autoComputeHomography(video, frm, NtopLeftP, NtopRightP, NbottomLeftP, Nbott
                 cv2.circle(frm, NbottomLeftP, radius=0, color=(255, 0, 255), thickness=10)
                 cv2.circle(frm, NbottomRightP, radius=0, color=(255, 0, 255), thickness=10)
              
-
-
-
-
 def calculate_homography(image_points, field_points, field_length, field_width):
     # Define the corresponding points in the field
     # The order is fundamental : if this is the final order, you have to choose the points in the given image in this way A->B->C->D
@@ -539,7 +531,98 @@ def detect_racket_hits(ball_positions):
                 hits.append(i)
     return hits
 
+def detect_cropped_frames(video_cap):
+    width = int(video_cap.get(3))
+    height = int(video_cap.get(4))
 
+    # Get the FPS of the video
+    video_file_fps = video_cap.get(cv2.CAP_PROP_FPS)
+
+    # Initialize frame index
+    frame_index = 0
+
+    playerDetection = PlayersDetections()
+    # Initialize the detector
+    detector = playerDetection.getDetector()  # Use your specific detection module
+
+    det_bot = None
+    det_top = None
+    det_bot_prev = None
+    det_top_prev = None
+    threshold = 20
+
+    min_y_top = None
+    max_y_top = None
+    min_x_top = None 
+    max_x_top = None
+
+
+    min_y_bot = None
+    max_y_bot = None
+    min_x_bot = None
+    max_x_bot = None
+    # Loop through the video frames
+    while cv2.waitKey(1) < 0:
+        # Read a frame from the video
+        success, frame = cap.read()
+        if not success:
+            break  # Break the loop when no more frames are available
+        
+        # Calculate the timestamp of the current frame          
+        frame_timestamp_ms = 1000 * frame_index / video_file_fps
+
+        # Convert the frame received from OpenCV to a MediaPipe’s Image object.
+        mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=frame)
+
+        # Perform object detection on the video frame.
+        detection_result = detector.detect_for_video(mp_image, int(frame_timestamp_ms))
+        detection_result = playerDetection.filterDetections(width/2, detection_result)
+
+        # assigning to each player his detection
+        for det in detection_result: 
+            bbox = det.bounding_box
+            y = bbox.origin_y
+            if y < height/2 : 
+                det_top = det 
+            else :
+                det_bot = det
+
+        # Eliminating detection out of threshold - should be optimized by interpolation
+        if det_top_prev == None or abs(det_top.bounding_box.origin_x - det_top_prev.bounding_box.origin_x) < threshold :
+            det_top_prev = det_top
+        if det_bot_prev == None or abs(det_bot.bounding_box.origin_x - det_bot_prev.bounding_box.origin_x) < threshold :
+            det_bot_prev = det_bot
+
+        if min_y_top is None or min_y_top > det_top_prev.bounding_box.origin_y : 
+            min_y_top = det_top_prev.bounding_box.origin_y
+        if max_y_top is None or max_y_top < det_top_prev.bounding_box.origin_y + det_top_prev.bounding_box.height : 
+            max_y_top = det_top_prev.bounding_box.origin_y + det_top_prev.bounding_box.height
+        if min_x_top is None or min_x_top > det_top_prev.bounding_box.origin_x : 
+            min_x_top = det_top_prev.bounding_box.origin_x
+        if max_x_top is None or max_x_top < det_top_prev.bounding_box.origin_x + det_top_prev.bounding_box.width: 
+            max_x_top = det_top_prev.bounding_box.origin_x+ det_top_prev.bounding_box.width
+
+        if min_y_bot is None or min_y_bot > det_bot_prev.bounding_box.origin_y : 
+            min_y_bot = det_bot_prev.bounding_box.origin_y
+        if max_y_bot is None or max_y_bot < det_bot_prev.bounding_box.origin_y + det_bot_prev.bounding_box.height :
+            max_y_bot = det_bot_prev.bounding_box.origin_y + det_bot_prev.bounding_box.height
+        if min_x_bot is None or min_x_bot > det_bot_prev.bounding_box.origin_x : 
+            min_x_bot = det_bot_prev.bounding_box.origin_x
+        if max_x_bot is None or max_x_bot < det_bot_prev.bounding_box.origin_x + det_bot_prev.bounding_box.width: 
+            max_x_bot = det_bot_prev.bounding_box.origin_x+ det_bot_prev.bounding_box.width
+
+        final_det = [det_top_prev, det_bot_prev]
+        playerDetection.visualize(frame, final_det)
+        cv2.imshow("Title", frame)
+
+        # Increment frame index for the next iteration
+        frame_index += 1
+
+    # Release the video capture object
+    cap.release()
+    cv2.destroyAllWindows()
+    #adding 5 to have tolerance
+    return min_y_bot + 5, max_y_bot + 5, min_x_bot + 5 , max_x_bot + 5 , min_y_top + 5 , max_y_top + 5 , min_x_top + 5 , max_x_top + 5
 ############################### MAIN ####################################
 field_length = 23.78 #meters
 field_width = 10.97 #meters
@@ -633,6 +716,11 @@ startofprocessing = True
 res_height = 0
 res_width = 0
 rect_height = 0
+
+min_y_bot_pl, max_y_bot_pl, min_x_bot_pl, max_x_bot_pl, min_y_top_pl, max_y_top_pl, min_x_top_pl, max_x_top_pl = detect_cropped_frames(cap)
+
+cap = cv2.VideoCapture(video_path)
+
 while cv2.waitKey(1) < 0:
     hasFrame, frame = cap.read()
     if not hasFrame:
@@ -649,12 +737,12 @@ while cv2.waitKey(1) < 0:
     #changing the rectified image to "clean" it from the previous drawings of the center
     rectified_image = cv2.warpPerspective(image, homography_matrix, (image.shape[1], image.shape[0]))
 
-    cropped_frame_B = frame[90:250, 390:855].copy()
-    cropped_frame_A = frame[350:720, 100:1100].copy()
+    cropped_frame_top = frame[min_y_top_pl:max_y_top_pl, min_x_top_pl:max_x_top_pl].copy()
+    cropped_frame_bot = frame[min_y_bot_pl:max_y_bot_pl, min_x_bot_pl:max_x_bot_pl].copy()
     
     #creating two threads to improve performances for the detection of the pose
-    th_A = threading.Thread(target=computePoseAndAnkles, args=(cropped_frame_A, stationary_points_A, mpPose_A, pose_A, mpDraw_A, homography_matrix, prev_PrightA_image, prev_PleftA_image, threshold_moving, 100, 400, rectified_image))
-    th_B = threading.Thread(target=computePoseAndAnkles, args=(cropped_frame_B, stationary_points_B, mpPose_B, pose_B, mpDraw_B, homography_matrix, prev_PrightB_image, prev_PleftB_image, threshold_moving, 390,  90, rectified_image))
+    th_A = threading.Thread(target=computePoseAndAnkles, args=(cropped_frame_bot, stationary_points_A, mpPose_A, pose_A, mpDraw_A, homography_matrix, prev_PrightA_image, prev_PleftA_image, threshold_moving, min_x_bot_pl, min_y_bot_pl, rectified_image))
+    th_B = threading.Thread(target=computePoseAndAnkles, args=(cropped_frame_top, stationary_points_B, mpPose_B, pose_B, mpDraw_B, homography_matrix, prev_PrightB_image, prev_PleftB_image, threshold_moving, min_x_top_pl,  min_y_top_pl, rectified_image))
     th_C = threading.Thread(target=processBallTrajectory, args=(ball_detector, frame, positions_stack))
     
     th_A.start()
@@ -670,8 +758,8 @@ while cv2.waitKey(1) < 0:
 
     fps = 1/(cTime-pTime)
     
-    frame[350:720, 100:1100] = cropped_frame_A
-    frame[90:250, 390:855] = cropped_frame_B
+    frame[min_y_bot_pl:max_y_bot_pl, min_x_bot_pl:max_x_bot_pl] = cropped_frame_bot
+    frame[min_y_top_pl:max_y_top_pl, min_x_top_pl:max_x_top_pl] = cropped_frame_top
 
     ballpos_real = (0,0)
     if ballpos != (0,0):
