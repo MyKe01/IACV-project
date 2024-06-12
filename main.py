@@ -36,6 +36,7 @@ import time
 from TRACE.BallDetection import BallDetector
 from TRACE.BallMapping import euclideanDistance, withinCircle
 from moviepy.editor import VideoFileClip
+from scipy.optimize import minimize
 
 from player_detection.playerDetection import PlayersDetections
 ##################################################################
@@ -173,7 +174,6 @@ def processBallTrajectory (BallDetector, frame, positions_stack):
         pos_counter = 0
         sequence = False
 
-
 def determinant(a, b):
     return a[0] * b[1] - a[1] * b[0]
     
@@ -194,6 +194,7 @@ def findIntersection(line1, line2, xStart, yStart, xEnd, yEnd):
 
 def autoComputeHomography(video, frm, NtopLeftP, NtopRightP, NbottomLeftP, NbottomRightP):
 
+    #global field_points_2D
     width = int(video.get(3))
     height = int(video.get(4))
 
@@ -371,10 +372,10 @@ def autoComputeHomography(video, frm, NtopLeftP, NtopRightP, NbottomLeftP, Nbott
                 cv2.circle(frm, NbottomLeftP, radius=0, color=(255, 0, 255), thickness=10)
                 cv2.circle(frm, NbottomRightP, radius=0, color=(255, 0, 255), thickness=10)
 
-            points = [NtopLeftP, NtopRightP, NbottomRightP, NbottomLeftP]
+            points_array = [NtopLeftP, NtopRightP, NbottomRightP, NbottomLeftP]
             # Calculate homography
-            homography_matrix = calculate_homography(np.array(points), points, field_length, field_width)
-            return homography_matrix
+            homography_matrix = calculate_homography(np.array(points_array), points_array, field_length, field_width)
+            return homography_matrix, points_array
 
         else:
              if frm is not None : 
@@ -387,7 +388,17 @@ def autoComputeHomography(video, frm, NtopLeftP, NtopRightP, NbottomLeftP, Nbott
                 cv2.circle(frm, NtopRightP, radius=0, color=(255, 0, 255), thickness=10)
                 cv2.circle(frm, NbottomLeftP, radius=0, color=(255, 0, 255), thickness=10)
                 cv2.circle(frm, NbottomRightP, radius=0, color=(255, 0, 255), thickness=10)
-             
+
+def select_points(image_path):
+    # Display the image and allow the user to select points
+    image = cv2.imread(image_path)
+    image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    plt.imshow(image)
+    plt.title("Select points by clicking, press any key when done.")
+    points = plt.ginput(n=-1, timeout=0, show_clicks=True)
+    plt.close()
+    return np.array(points)         
+
 def calculate_homography(image_points, field_points, field_length, field_width):
     # Define the corresponding points in the field
     # The order is fundamental : if this is the final order, you have to choose the points in the given image in this way A->B->C->D
@@ -623,17 +634,142 @@ def detect_cropped_frames(video_cap):
     cv2.destroyAllWindows()
     #adding 5 to have tolerance
     return min_y_bot + 5, max_y_bot + 5, min_x_bot + 5 , max_x_bot + 5 , min_y_top + 5 , max_y_top + 5 , min_x_top + 5 , max_x_top + 5
-############################### MAIN ####################################
-field_length = 23.78 #meters
-field_width = 10.97 #meters
 
-#we need a scale factor since the sizes are in meters and if scale_factor = 1 the returned image will be really small
-scale_factor = 20
-field_length *=scale_factor
-field_width *=scale_factor
+
+############################################################################################################
+####################################### TEST SECTION #######################################################
+
+# Step 1: Camera Calibration using DLT
+#def calibrate_camera(points_2d, points_3d):
+#    assert len(points_2d) == len(points_3d) and len(points_2d) >= 6
+#    A = []
+#    for i in range(len(points_2d)):
+#        X, Y, Z = points_3d[i]
+#        u, v = points_2d[i]
+#        A.append([X, Y, Z, 1, 0, 0, 0, 0, -u*X, -u*Y, -u*Z])
+#        A.append([0, 0, 0, 0, X, Y, Z, 1, -v*X, -v*Y, -v*Z])
+#    A = np.array(A)
+#    U, S, Vt = np.linalg.svd(A)
+#    P = Vt[-1].reshape(3, 4)
+#    return P
+
+def calibrate_camera(points_2d, points_3d):
+    assert len(points_2d) == len(points_3d) and len(points_2d) >= 6
+    A = []
+    for i in range(len(points_2d)):
+        X, Y, Z = points_3d[i]
+        u, v = points_2d[i]
+        A.append([X, Y, Z, 1, 0, 0, 0, 0, -u*X, -u*Y, -u*Z, -u])
+        A.append([0, 0, 0, 0, X, Y, Z, 1, -v*X, -v*Y, -v*Z, -v])
+    A = np.array(A)
+    U, S, Vt = np.linalg.svd(A)
+    P = Vt[-1].reshape(3, 4)
+    return P
+
+
+# Step 2: Map 2D points to 3D using the inverse projection matrix
+#def map_2d_to_3d(P, points_2d):
+#    points_3d = []
+#    P_inv = np.linalg.pinv(P)
+#    for u, v in points_2d:
+#        X, Y, Z, _ = P_inv @ np.array([u, v, 1])
+#        points_3d.append((X/Z, Y/Z, 1))
+#    return np.array(points_3d)
+
+def map_2d_to_3d(P, points_2d):
+    points_3d = []
+    P_inv = np.linalg.pinv(P)
+    for u, v in points_2d:
+        X, Y, Z, W = P_inv @ np.array([u, v, 1])
+        points_3d.append((X/W, Y/W, Z/W))
+    return np.array(points_3d)
+
+# Step 3: Initial trajectory estimation
+def estimate_trajectory(initial_position, initial_velocity, time, g=9.8):
+    X = initial_position[0] + time * initial_velocity[0]
+    Y = initial_position[1] + time * initial_velocity[1]
+    Z = initial_position[2] + time * initial_velocity[2] - 0.5 * g * time**2
+    return X, Y, Z
+
+# Step 4: Improved trajectory using geometric constraints
+def compute_trajectory(P, points_2d, initial_params, touch_points, w=1.0):
+    def cost_function(params):
+        initial_position = params[:3]
+        initial_velocity = params[3:]
+        F_classic = 0
+        F_touch = 0
+        for t, (u, v) in enumerate(points_2d):
+            X, Y, Z = estimate_trajectory(initial_position, initial_velocity, t)
+            u_proj, v_proj, _ = P @ np.array([X, Y, Z, 1])
+            u_proj /= u_proj[2]
+            v_proj /= v_proj[2]
+            F_classic += (u - u_proj[0])**2 + (v - v_proj[1])**2
+            if t in touch_points:  # Add touch point constraint
+                X_touch, Y_touch, Z_touch = compute_touch_point(P, u, v)
+                F_touch += (X - X_touch)**2 + (Y - Y_touch)**2 + (Z - Z_touch)**2
+        return F_classic + w * F_touch
+
+    result = minimize(cost_function, initial_params, method='L-BFGS-B')
+    return result.x
+
+# Auxiliary function to compute touch points
+def compute_touch_point(P, u, v):
+    # Assuming Z=0 for the court plane
+    A = np.array([
+        [P[0,0] - u*P[2,0], P[0,1] - u*P[2,1], P[0,2] - u*P[2,2]],
+        [P[1,0] - v*P[2,0], P[1,1] - v*P[2,1], P[1,2] - v*P[2,2]]
+    ])
+    b = np.array([u*P[2,3] - P[0,3], v*P[2,3] - P[1,3]])
+    X, Y, Z = np.linalg.lstsq(A, b, rcond=None)[0]
+    return X, Y, Z
+
+##########################################################################################################
+##########################################################################################################
+
+############################### MAIN ####################################
+
+# Field Dimensions (scaled)
+field_length_real = 23.78 #meters
+field_width_real = 10.97 #meters
+net_post_real = 1.07 #meters, height of the sides of the net
+
+scale_factor = 20 #pixel per meter (?)
+field_length = field_length_real * scale_factor
+field_width = field_width_real * scale_factor
+net_post = net_post_real * scale_factor
+
+# Field (x,y,z) relevant points
+#    3____________________________4
+#    |                            |
+#    |                            |
+#    |                            |
+#    |                            |
+#    |                            |
+#    |                            |
+#    |                            |
+#  2________________________________5
+#    |                            |
+#    |                            |
+#    |                            |
+#    |                            |
+#    |                            |
+#    |                            |
+#    |                            |
+#    1____________________________6
+# (X)
+# 
+# (X) is where the reference system is placed, so that point 1 is at x = 5 meters and y = 5 meters 
+
+reference_offset = (5,5,0) # offset between (X) and PT1
+field_pt1 = (reference_offset[1], reference_offset[2], 0)
+field_pt2 = (reference_offset[1] - 0.91, reference_offset[2] + 11.83, 1.07)
+field_pt3 = (reference_offset[1], reference_offset[2] + 23.78, 0)
+field_pt4 = (reference_offset[1] + 10.97, reference_offset[2] + 23.78, 0)
+field_pt5 = (reference_offset[1] + 10.97 + 0.91, reference_offset[2] + 11.83, 1.07)
+field_pt6 = (reference_offset[1] + 10.97, reference_offset[2], 0)
 
 # Load an image
-image_path = 'resources/frame.JPG'
+image_path = "resources/frame.JPG"
 image = cv2.imread(image_path)
 image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB) #set the color from BGR to RGB
 
@@ -652,7 +788,7 @@ beginning = True
 # Font characteristics for the coordinates display 
 font = cv2.FONT_HERSHEY_SIMPLEX
 font_scale = 0.5
-color =(255,255,255)
+color = (255,255,255)
 thickness = 1
 ############## Task 2 ###################
 
@@ -672,7 +808,8 @@ cap = cv2.VideoCapture(video_path)
 
 
 # Calculate homography
-homography_matrix = autoComputeHomography(cap,None, None, None, None, None)
+#field_points_2D = []
+homography_matrix, field_points_2D = autoComputeHomography(cap,None, None, None, None, None)
 
 mpPose_A = mp.solutions.pose
 pose_A = mpPose_A.Pose()
@@ -721,6 +858,59 @@ min_y_bot_pl, max_y_bot_pl, min_x_bot_pl, max_x_bot_pl, min_y_top_pl, max_y_top_
 
 cap = cv2.VideoCapture(video_path)
 
+selected = select_points(image_path)
+print(selected)
+
+#####################################################
+# Example usage
+#points_2d = np.array([[field_points_2D[3][0], field_points_2D[3][1]], np.array(selected[0]),[field_points_2D[0][0], field_points_2D[0][1]], [field_points_2D[1][0], field_points_2D[1][1]], np.array(selected[1]), [field_points_2D[2][0], field_points_2D[2][1]]])  # Example 2D points from video frames
+#points_3d = np.array([field_pt1, field_pt2, field_pt3, field_pt4, field_pt5, field_pt6])  # Corresponding 3D points on the court
+
+reference_offset = (5, 5, 0)  # offset between (X) and PT1
+field_pt1 = (reference_offset[1], reference_offset[2], 0)
+field_pt2 = (reference_offset[1] - 0.91, reference_offset[2] + 11.83, 1.07)
+field_pt3 = (reference_offset[1], reference_offset[2] + 23.78, 0)
+field_pt4 = (reference_offset[1] + 10.97, reference_offset[2] + 23.78, 0)
+field_pt5 = (reference_offset[1] + 10.97 + 0.91, reference_offset[2] + 11.83, 1.07)
+field_pt6 = (reference_offset[1] + 10.97, reference_offset[2], 0)
+
+points_2d = np.array([
+    [field_points_2D[3][0], field_points_2D[3][1]], 
+    selected[0], 
+    [field_points_2D[0][0], field_points_2D[0][1]], 
+    [field_points_2D[1][0], field_points_2D[1][1]], 
+    selected[1], 
+    [field_points_2D[2][0], field_points_2D[2][1]]
+])
+
+points_3d = np.array([field_pt1, field_pt2, field_pt3, field_pt4, field_pt5, field_pt6])
+
+P = calibrate_camera(points_2d, points_3d)
+print(P)
+
+
+
+# Step 1: Calibrate the camera
+P = calibrate_camera(points_2d, points_3d)
+
+# Step 2: Map 2D ball coordinates to 3D
+ball_2d_coords = [(490, 200), (495, 205)]  # 2D coordinates of the ball from video frames
+ball_3d_coords = map_2d_to_3d(P, ball_2d_coords)
+
+# Step 3: Estimate the trajectory
+#initial_params = [0, 0, 2, 30, 0, 10]  # Initial guess for position and velocity (2 meters height of the ball, 30m/s on x and 10 m/s on z)
+#touch_points = {0: (0, 2.47, 0), 10: (1.525, 2.47, 0)}  # Example touch points
+#touch_points = {}
+
+#trajectory_params = compute_trajectory(P, ball_2d_coords, initial_params, touch_points)
+
+# Extract and print top view coordinates (X, Y)
+#for t in range(len(ball_2d_coords)):
+#    X, Y, Z = estimate_trajectory(trajectory_params[:3], trajectory_params[3:], t)
+#    print(f"Top view coordinates at t={t}: X={X}, Y={Y}")
+
+####################################################
+
 while cv2.waitKey(1) < 0:
     hasFrame, frame = cap.read()
     if not hasFrame:
@@ -764,10 +954,10 @@ while cv2.waitKey(1) < 0:
     ballpos_real = (0,0)
     if ballpos != (0,0):
         cv2.circle(frame, ballpos, 5, (0, 255, 0), cv2.FILLED)
-        ballpos_array = np.array([[ballpos[0], ballpos[1]]], dtype=np.float32)
-        ballpos_array = np.reshape(ballpos_array, (1,1,2))
-        transformedpos = cv2.perspectiveTransform(ballpos_array, homography_matrix)
-        ballpos_real = (round(transformedpos[0][0][0]), round(transformedpos[0][0][1]))
+        #ballpos_array = np.array([[ballpos[0], ballpos[1]]], dtype=np.float32)
+        #ballpos_array = np.reshape(ballpos_array, (1,1,2))
+        transformedpos = map_2d_to_3d(P, np.array([ballpos]))
+        ballpos_real = (round(transformedpos[0][0]), round(transformedpos[0][1]))
         cv2.circle(rectified_image, ballpos_real , 5, (255, 255, 0), cv2.FILLED)
     ball_positions.append(ballpos)
     ball_positions_real.append(ballpos_real)
@@ -838,10 +1028,10 @@ while cv2.waitKey(1) < 0:
         #Top Pitch View: adding of interpolated ball position
         rectified_image_extr = frame[0:res_height, res_width+1:frame.shape[1]]
         interpolatedballpos = ball_positions[j]
-        ballpos_array = np.array([[interpolatedballpos[0], interpolatedballpos[1]]], dtype=np.float32)
-        ballpos_array = np.reshape(ballpos_array, (1,1,2))
-        transformedpos = cv2.perspectiveTransform(ballpos_array, homography_matrix)
-        ballpos_real = (round(transformedpos[0][0][0]), round(transformedpos[0][0][1]))
+        #ballpos_array = np.array([[interpolatedballpos[0], interpolatedballpos[1]]], dtype=np.float32)
+        #ballpos_array = np.reshape(ballpos_array, (1,1,2))
+        transformedpos = map_2d_to_3d(P, np.array([interpolatedballpos]))
+        ballpos_real = (round(transformedpos[0][0]), round(transformedpos[0][1]))
         cv2.circle(rectified_image_extr, ballpos_real , 5, (255, 255, 0), cv2.FILLED)
 
         #height = max(frame.shape[0], rectified_image_extr.shape[0])
