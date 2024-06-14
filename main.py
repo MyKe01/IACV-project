@@ -532,15 +532,21 @@ def interpolate_missing_values(coords):
 
     return interpolated
 
+#def detect_racket_hits(ball_positions, tophead_positions, bottomhead_positions):
 def detect_racket_hits(ball_positions):
     hits = []
     ball_positions_array = np.array(ball_positions)
+
     velocities = np.gradient(ball_positions_array[:, 1])  # Calcolo della derivata rispetto all'asse verticale
-    for i in range(1, len(ball_positions)):
+    for i in range(3, len(ball_positions)-3):
         if (velocities[i] >= 0 and velocities[i-1] < 0) or (velocities[i] < 0 and velocities[i-1] >= 0):
             if velocities[i+1] >= 0 and velocities[i-2] < 0 or velocities[i+1] < 0 and velocities[i-2] >= 0:
                 hits.append(i)
-    return hits
+    print("GRADIENT ON Y:")
+    print(velocities)
+    print("DETECTED HITS")
+    print(hits)
+    return hits, velocities
 
 def detect_cropped_frames(video_cap):
     width = int(video_cap.get(3))
@@ -802,7 +808,7 @@ threshold_moving = 5
 ############## Task 3 ###################
 
 # Loading of the clip to analyze
-video_path = "resources/tennis2.mp4"
+video_path = "resources/tennis2full.mp4"
 total_frames = get_total_frames(video_path)
 cap = cv2.VideoCapture(video_path)
 
@@ -885,11 +891,6 @@ points_2d = np.array([
 
 points_3d = np.array([field_pt1, field_pt2, field_pt3, field_pt4, field_pt5, field_pt6])
 
-P = calibrate_camera(points_2d, points_3d)
-print(P)
-
-
-
 # Step 1: Calibrate the camera
 P = calibrate_camera(points_2d, points_3d)
 
@@ -923,7 +924,7 @@ while cv2.waitKey(1) < 0:
     cTime = time.time()
 
     #no item returned since it is just to show live court detection (too noisy to make live computation of homography)
-    autoComputeHomography(cap, frame, NtopLeftP, NtopRightP, NbottomLeftP, NbottomRightP)
+    #autoComputeHomography(cap, frame, NtopLeftP, NtopRightP, NbottomLeftP, NbottomRightP)
     #changing the rectified image to "clean" it from the previous drawings of the center
     rectified_image = cv2.warpPerspective(image, homography_matrix, (image.shape[1], image.shape[0]))
 
@@ -947,6 +948,7 @@ while cv2.waitKey(1) < 0:
     pTime = time.time()
 
     fps = 1/(cTime-pTime)
+    fps = 1/(pTime-cTime)
     
     frame[min_y_bot_pl:max_y_bot_pl, min_x_bot_pl:max_x_bot_pl] = cropped_frame_bot
     frame[min_y_top_pl:max_y_top_pl, min_x_top_pl:max_x_top_pl] = cropped_frame_top
@@ -982,7 +984,7 @@ while cv2.waitKey(1) < 0:
     combined_image = cv2.hconcat([frame, rectified_image])
     cv2.imshow('Combined Images', combined_image)
     result.write(combined_image)
-    if i > 250: break
+    #if i > 250: break #FOR TESTING ON LIMITED INTERVAL
 
 cap.release()
 result.release()
@@ -1021,6 +1023,7 @@ while cv2.waitKey(1) < 0:
     print(f"{percent:.1f}%")
 
     if j in interpolated_samples:
+
         #Regular Pitch View: adding of interpolated ball position
         original_frame_extr = frame[0:res_height,0:res_width]
         cv2.circle(original_frame_extr, ball_positions[j], 7, (0, 0, 255), cv2.FILLED) 
@@ -1042,8 +1045,22 @@ while cv2.waitKey(1) < 0:
     
     result.write(frame) 
     j +=1
+cap.release()
+result.release()
+cv2.destroyAllWindows()
+print("The video was successfully processed")
 
-racket_hits = detect_racket_hits(ball_positions)
+
+cap = cv2.VideoCapture("processed.mp4")
+
+
+
+result = cv2.VideoWriter('processed_winfo.mp4',
+                         cv2.VideoWriter_fourcc(*'mp4v'),
+                         60, (image.shape[1] + rectified_image.shape[1], 720))
+
+
+racket_hits, velocity_on_y = detect_racket_hits(ball_positions)
 print("Detected racket hits:", racket_hits)
 j = 0
 hits = 0
@@ -1056,9 +1073,14 @@ while cv2.waitKey(1) < 0:
     percent = j/i*100
     print(f"{percent:.1f}%")
 
+    vel =  f"{velocity_on_y[j]}"
+    cv2.putText(frame, vel, (50, 150), cv2.FONT_HERSHEY_SIMPLEX, 1, (0,255,255), 2)
+
     if j in racket_hits:
         hits += 1
-        cv2.putText(frame, f"Racket Hits: {hits}", (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0,255,0), 2)
+        text_rackethits = f"Racket Hits: {hits}"
+        cv2.putText(frame, text_rackethits, (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0,255,0), 2)
+        
     
     result.write(frame) 
     j +=1
