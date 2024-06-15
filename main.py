@@ -561,52 +561,36 @@ def interpolate_missing_values(coords):
     return interpolated
 
 #def detect_racket_hits(ball_positions, tophead_positions, bottomhead_positions):
-def detect_racket_hits(ball_positions, ):
+def detect_racket_hits(ball_positions, rightwrist_positions_top, leftwrist_positions_top, rightwrist_positions_bot, leftwrist_positions_bot, height_values_top, height_values_bot):
     hits = []
-    window = 15
+    window = 49
     poly_order = 2
 
     ball_positions_array = np.array(ball_positions)
     y_positions = ball_positions_array[:, 1]
-    smoothed_y_positionsA = savgol_filter(y_positions, 7, 1)
-    smoothed_y_positionsB = savgol_filter(y_positions, 9, poly_order)
-    smoothed_y_positionsC = savgol_filter(y_positions, 49, poly_order)
+    smoothed_y_positions = savgol_filter(y_positions, window, poly_order)
 
-    #velocitiesA = np.gradient(smoothed_y_positionsA)  # Calcolo della derivata rispetto all'asse verticale
-    #accelerationsA = np.gradient(velocitiesA)
-    velocitiesA = savgol_filter(y_positions, 7, 1, deriv=1)  # Calcolo della derivata rispetto all'asse verticale
-    accelerationsA = np.gradient(velocitiesA)
+    velocities = savgol_filter(y_positions, window, poly_order, deriv=1)  # Calcolo della derivata rispetto all'asse verticale
+    accelerations = np.gradient(velocities)
 
-    velocitiesB = np.gradient(smoothed_y_positionsB)  # Calcolo della derivata rispetto all'asse verticale
-    accelerationsB = np.gradient(velocitiesB)
-
-    velocitiesC = savgol_filter(y_positions, 25, poly_order, deriv=1)  # Calcolo della derivata rispetto all'asse verticale
-    accelerationsC = np.gradient(velocitiesC)
-
-    plotgraph(smoothed_y_positionsA, "Frame", "y Position", "pA.jpg")
-    plotgraph(velocitiesA, "Frame", "y Velocity", "vA.jpg")
-    plotgraph(accelerationsA, "Frame", "y Accelerations", "aA.jpg")
-
-    plotgraph(smoothed_y_positionsB, "Frame", "y Position", "pB.jpg")
-    plotgraph(velocitiesB, "Frame", "y Velocity", "vB.jpg")
-    plotgraph(accelerationsB, "Frame", "y Accelerations", "aB.jpg")
-
-    plotgraph(smoothed_y_positionsC, "Frame", "y Position", "pC.jpg")
-    plotgraph(velocitiesC, "Frame", "y Velocity", "vC.jpg")
-    plotgraph(accelerationsC, "Frame", "y Accelerations", "aC.jpg")
+    plotgraph(smoothed_y_positions, "Frame", "y Position", "pC.jpg")
+    plotgraph(velocities, "Frame", "y Velocity", "vC.jpg")
+    plotgraph(accelerations, "Frame", "y Accelerations", "aC.jpg")
     #for i in range(3, len(ball_positions)-3):
         #if (velocities[i] >= 0 and velocities[i-1] < 0) or (velocities[i] < 0 and velocities[i-1] >= 0):
         #   if velocities[i+1] >= 0 and velocities[i-2] < 0 or velocities[i+1] < 0 and velocities[i-2] >= 0:
         #        hits.append(i)
 
-    sign_changes = np.where(np.diff(np.sign(velocitiesC)))[0]
+    sign_changes = np.where(np.diff(np.sign(velocities)))[0]
 
+    for i in range(len(ball_positions)):
+        if 
 
     #print("GRADIENT ON Y:")
     #print(velocities)
     #print("DETECTED HITS")
     #print(hits)
-    return hits, velocitiesA, velocitiesC
+    return hits, velocities
 
 def plotgraph(values, xlabel, ylabel, filename):
     plt.plot(values, color='tab:blue', marker='.')
@@ -1039,13 +1023,12 @@ while cv2.waitKey(1) < 0:
     print(height_str_top)
     print(height_str_bot)
 
-    rightwrist_positions_top
-    leftwrist_positions_top
-    rightwrist_positions_bot
-    leftwrist_positions_bot
-    height_values_top
-    height_values_bot
-
+    rightwrist_positions_top.append(rightwrist_top)
+    leftwrist_positions_top.append(leftwrist_top)
+    rightwrist_positions_bot.append(rightwrist_bot)
+    leftwrist_positions_bot.append(leftwrist_bot)
+    height_values_top.append(height_top)
+    height_values_bot.append(height_bot)
 
     pTime = time.time()
 
