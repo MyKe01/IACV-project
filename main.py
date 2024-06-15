@@ -57,13 +57,13 @@ def computePoseAndAnkles(cropped_frame, static_centers_queue, mpPose, pose, mpDr
     head_y *= 0.1 # By default, the difference between feet and head (height of the player) will be 1/10 of the height of the video [in pixels]
     feet_y = 0
     detected_height = head_y
-    
+
     if results.pose_landmarks:
         mpDraw.draw_landmarks(cropped_frame, results.pose_landmarks, mpPose.POSE_CONNECTIONS)
         for id, lm in enumerate(results.pose_landmarks.landmark):
             h, w,c = cropped_frame.shape
             #print(id, lm)
-            if id == 28 : 
+            if id == 28 : ## RIGHT ANKLE
                 right_ankle = (int(lm.x*w), int(lm.y*h))
                 cv2.circle(cropped_frame, right_ankle, 5, (0,0,255), cv2.FILLED)
 
@@ -77,7 +77,7 @@ def computePoseAndAnkles(cropped_frame, static_centers_queue, mpPose, pose, mpDr
                 Pright_image = (round(Pright_image[0][0][0]), round(Pright_image[0][0][1]))
                 # Display of the right foot field real coordinates values at image coordinates, with slight offset on the X axis to avoid overlapping with the actual foot
                 cv2.putText(cropped_frame, f"{Pright_image}", (right_ankle[0] + 10, right_ankle [1]), font, font_scale, color, thickness, cv2.LINE_AA)        
-            elif id == 27 :
+            elif id == 27 : ## LEFT ANKLE
                 left_ankle = (int(lm.x*w), int(lm.y*h))
                 cv2.circle(cropped_frame, left_ankle, 5, (0,255,0), cv2.FILLED)
                 
@@ -91,22 +91,23 @@ def computePoseAndAnkles(cropped_frame, static_centers_queue, mpPose, pose, mpDr
                 Pleft_image = (round(Pleft_image[0][0][0]),round(Pleft_image[0][0][1]))
                 # Display of the left foot field real coordinates values at image coordinates, with slight offset on the X axis to avoid overlapping with the actual foot
                 cv2.putText(cropped_frame, f"{Pleft_image}", (left_ankle[0] + 10, left_ankle [1] + 20), font, font_scale, color, thickness, cv2.LINE_AA)
-            elif id == 15:
+            elif id == 15: ## LEFT WRIST
                 cx, cy = int(lm.x*w), int(lm.y*h)
                 leftwristbuffer.append((cx, cy))
                 cv2.circle(cropped_frame, (cx, cy), 5, (255,0,255), cv2.FILLED)
-            elif id == 16:
+            elif id == 16: ## RIGHT WRIST
                 cx, cy = int(lm.x*w), int(lm.y*h)
                 rightwristbuffer.append((cx, cy))
                 cv2.circle(cropped_frame, (cx, cy), 5, (255,0,255), cv2.FILLED)
-            elif id == 0:
+            elif id == 0: ## HEAD/NOSE
                 cx, cy = int(lm.x*w), int(lm.y*h)
                 cv2.circle(cropped_frame, (cx, cy), 5, (255,0,255), cv2.FILLED)
-                head_y = cy
-            else :
+                head_y = cy # Set new head height
+            else : ## GENERIC BODY POINT
                 cx, cy = int(lm.x*w), int(lm.y*h)
                 cv2.circle(cropped_frame, (cx, cy), 5, (255,0,0), cv2.FILLED)
 
+    # Feet Movement Detection
     if prev_right_ankle is not None and prev_left_ankle is not None:
             
         left_foot_moved = np.linalg.norm(np.array(Pleft_image) - np.array(prev_left_ankle)) > threshold                              # Euclidean distance computation between the current Left foot position and its position in the previous frame, all compared to the chosen threshold 
@@ -130,12 +131,15 @@ def computePoseAndAnkles(cropped_frame, static_centers_queue, mpPose, pose, mpDr
     prev_right_ankle[0] = Pright_image[0]
     prev_right_ankle[1] = Pright_image[1]
     
-    #computing the center position of the player in the real field
+    # Computing the center position of the player in the real field (top view)
     center_real = tuple((int((Pright_image[0] + Pleft_image[0])/2), int((Pright_image[1] + Pleft_image[1])/2)))  
     
-    
+    # Player Height Calculation
+    center_inframe = (int((right_ankle[0] + left_ankle[0])/2), int((right_ankle[1] + left_ankle[1])/2))
+    height = abs(head_y - center_inframe[1])
+    heightbuffer.append(height)
 
-    #collecting static positions
+    # Collecting static positions
     if right_ankle != (0,0) and left_ankle != (0,0) and left_foot_moved != True and right_foot_moved != True : 
         static_centers_queue.append(center_real)
     #displaying live positions of the player
@@ -557,7 +561,7 @@ def interpolate_missing_values(coords):
     return interpolated
 
 #def detect_racket_hits(ball_positions, tophead_positions, bottomhead_positions):
-def detect_racket_hits(ball_positions):
+def detect_racket_hits(ball_positions, ):
     hits = []
     window = 15
     poly_order = 2
@@ -843,15 +847,27 @@ image_path = "resources/frame.JPG"
 image = cv2.imread(image_path)
 image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB) #set the color from BGR to RGB
 
-# Ball trajectory util
-positions_stack = [] #stack to compute values in thread
+###### Ball trajectory util
+# Buffers to use as queues in threads
+positions_stack = []
 rightwrist_stack_top = []
 leftwrist_stack_top = []
 rightwrist_stack_bot = []
 leftwrist_stack_bot = []
 realposition_buffer = []
+height_top_buffer = []
+height_bot_buffer = []
+
+# Arrays for positions wrt frames
 ball_positions = [] #array of the trajectory in the image
 ball_positions_real = [] #array of the top-view trajectory in the image
+rightwrist_positions_top = []
+leftwrist_positions_top = []
+rightwrist_positions_bot = []
+leftwrist_positions_bot = []
+height_values_top = []
+height_values_bot = []
+
 prevpos = (0,0)
 lastvalidpos = (0,0)
 pos_counter = 0
@@ -998,8 +1014,8 @@ while cv2.waitKey(1) < 0:
     cropped_frame_bot = frame[min_y_bot_pl:max_y_bot_pl, min_x_bot_pl:max_x_bot_pl].copy()
     
     #creating two threads to improve performances for the detection of the pose
-    th_A = threading.Thread(target=computePoseAndAnkles, args=(cropped_frame_bot, stationary_points_A, mpPose_A, pose_A, mpDraw_A, homography_matrix, prev_PrightA_image, prev_PleftA_image, threshold_moving, min_x_bot_pl, min_y_bot_pl, rectified_image, rightwrist_stack_bot, leftwrist_stack_bot))
-    th_B = threading.Thread(target=computePoseAndAnkles, args=(cropped_frame_top, stationary_points_B, mpPose_B, pose_B, mpDraw_B, homography_matrix, prev_PrightB_image, prev_PleftB_image, threshold_moving, min_x_top_pl,  min_y_top_pl, rectified_image, rightwrist_stack_top, leftwrist_stack_top))
+    th_A = threading.Thread(target=computePoseAndAnkles, args=(cropped_frame_bot, stationary_points_A, mpPose_A, pose_A, mpDraw_A, homography_matrix, prev_PrightA_image, prev_PleftA_image, threshold_moving, min_x_bot_pl, min_y_bot_pl, rectified_image, rightwrist_stack_bot, leftwrist_stack_bot, height_bot_buffer))
+    th_B = threading.Thread(target=computePoseAndAnkles, args=(cropped_frame_top, stationary_points_B, mpPose_B, pose_B, mpDraw_B, homography_matrix, prev_PrightB_image, prev_PleftB_image, threshold_moving, min_x_top_pl,  min_y_top_pl, rectified_image, rightwrist_stack_top, leftwrist_stack_top, height_top_buffer))
     th_C = threading.Thread(target=processBallTrajectory, args=(ball_detector, frame, positions_stack))
     
     th_A.start()
@@ -1010,10 +1026,26 @@ while cv2.waitKey(1) < 0:
     th_C.join()
 
     ballpos = positions_stack.pop()
+
     rightwrist_top = rightwrist_stack_top.pop()
     leftwrist_top = leftwrist_stack_top.pop()
     rightwrist_bot = rightwrist_stack_bot.pop()
     leftwrist_bot = leftwrist_stack_bot.pop()
+
+    height_top = height_top_buffer.pop()
+    height_bot = height_bot_buffer.pop()
+    height_str_top = f"Top Height: {height_top}"
+    height_str_bot = f"Bottom Height: {height_bot}"
+    print(height_str_top)
+    print(height_str_bot)
+
+    rightwrist_positions_top
+    leftwrist_positions_top
+    rightwrist_positions_bot
+    leftwrist_positions_bot
+    height_values_top
+    height_values_bot
+
 
     pTime = time.time()
 
