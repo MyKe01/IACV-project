@@ -106,6 +106,8 @@ def computePoseAndAnkles(cropped_frame, static_centers_queue, mpPose, pose, mpDr
             else : ## GENERIC BODY POINT
                 cx, cy = int(lm.x*w), int(lm.y*h)
                 cv2.circle(cropped_frame, (cx, cy), 5, (255,0,0), cv2.FILLED)
+                rightwristbuffer.append((cx, cy)) # will be (0,0)
+                leftwristbuffer.append((cx, cy))# will be (0,0)
 
     # Feet Movement Detection
     if prev_right_ankle is not None and prev_left_ankle is not None:
@@ -583,8 +585,20 @@ def detect_racket_hits(ball_positions, rightwrist_positions_top, leftwrist_posit
 
     sign_changes = np.where(np.diff(np.sign(velocities)))[0]
 
-    for i in range(len(ball_positions)):
-        if 
+    for i in sign_changes:
+        ball_pos = ball_positions_array[i]
+        
+        # Distanza dai polsi del giocatore in alto
+        dist_right_top = np.linalg.norm(ball_pos - np.array(rightwrist_positions_top[i]))
+        dist_left_top = np.linalg.norm(ball_pos - np.array(leftwrist_positions_top[i]))
+        
+        # Distanza dai polsi del giocatore in basso
+        dist_right_bot = np.linalg.norm(ball_pos - np.array(rightwrist_positions_bot[i]))
+        dist_left_bot = np.linalg.norm(ball_pos - np.array(leftwrist_positions_bot[i]))
+
+        if (dist_right_top < height_values_top[i] or dist_left_top < height_values_top[i] or
+            dist_right_bot < height_values_bot[i] or dist_left_bot < height_values_bot[i]):
+            hits.append(i)
 
     #print("GRADIENT ON Y:")
     #print(velocities)
@@ -876,7 +890,7 @@ threshold_moving = 5
 ############## Task 3 ###################
 
 # Loading of the clip to analyze
-video_path = "resources/tennis2full.mp4"
+video_path = "resources/tennis2.mp4"
 total_frames = get_total_frames(video_path)
 cap = cv2.VideoCapture(video_path)
 
@@ -1151,7 +1165,7 @@ result = cv2.VideoWriter('processed_winfo.mp4',
                          60, (image.shape[1] + rectified_image.shape[1], 720))
 
 
-racket_hits, velocity_on_yA, velocity_on_yC = detect_racket_hits(ball_positions)
+racket_hits, velocity = detect_racket_hits(ball_positions)
 print("Detected racket hits:", racket_hits)
 j = 0
 hits = 0
@@ -1176,11 +1190,9 @@ while cv2.waitKey(1) < 0:
         cv2.putText(frame, ypos3, (50, 410), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255,255,255), 2)
         cv2.putText(frame, ypos4, (50, 430), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255,255,255), 2)
 
-    vel =  f"V(A): {velocity_on_yA[j]:.2f}"
+    vel =  f"Y speed: {velocity[j]:.2f}"
     cv2.putText(frame, vel, (50, 150), cv2.FONT_HERSHEY_SIMPLEX, 1, (0,255,255), 2)
-    acc =  f"V(C): {velocity_on_yC[j]:.2f}"
-    cv2.putText(frame, acc, (50, 200), cv2.FONT_HERSHEY_SIMPLEX, 1, (255,255,0), 2)
-
+    
     if j in racket_hits:
         hits += 1
     text_rackethits = f"Racket Hits: {hits}"
