@@ -138,7 +138,7 @@ def computePoseAndAnkles(cropped_frame, static_centers_queue, mpPose, pose, mpDr
     
     # Player Height Calculation
     center_inframe = (int((right_ankle[0] + left_ankle[0])/2), int((right_ankle[1] + left_ankle[1])/2))
-    height = abs(head_y - center_inframe[1])
+    height = int(abs(head_y - center_inframe[1]))
     heightbuffer.append(height)
 
     # Collecting static positions
@@ -563,7 +563,7 @@ def interpolate_missing_values(coords):
     return interpolated
 
 #def detect_racket_hits(ball_positions, tophead_positions, bottomhead_positions):
-def detect_racket_hits(ball_positions, rightwrist_positions_top, leftwrist_positions_top, rightwrist_positions_bot, leftwrist_positions_bot, height_values_top, height_values_bot):
+#def detect_racket_hits(ball_positions, rightwrist_positions_top, leftwrist_positions_top, rightwrist_positions_bot, leftwrist_positions_bot, height_values_top, height_values_bot):
     hits = []
     window = 49
     poly_order = 2
@@ -586,19 +586,90 @@ def detect_racket_hits(ball_positions, rightwrist_positions_top, leftwrist_posit
     sign_changes = np.where(np.diff(np.sign(velocities)))[0]
 
     for i in sign_changes:
-        ball_pos = ball_positions_array[i]
-        
-        # Distanza dai polsi del giocatore in alto
-        dist_right_top = np.linalg.norm(ball_pos - np.array(rightwrist_positions_top[i]))
-        dist_left_top = np.linalg.norm(ball_pos - np.array(leftwrist_positions_top[i]))
-        
-        # Distanza dai polsi del giocatore in basso
-        dist_right_bot = np.linalg.norm(ball_pos - np.array(rightwrist_positions_bot[i]))
-        dist_left_bot = np.linalg.norm(ball_pos - np.array(leftwrist_positions_bot[i]))
+        print("Detected racket hit: ")
+        print(i)
+        for j in range(i-15, i+15):
+            if i+10 > len(ball_positions_array):
+                break
+            ball_pos = ball_positions_array[j]
+            
+            # Distanza dai polsi del giocatore in alto
+            dist_right_top = np.linalg.norm(ball_pos - np.array(rightwrist_positions_top[j]))
+            dist_left_top = np.linalg.norm(ball_pos - np.array(leftwrist_positions_top[j]))
+            
+            # Distanza dai polsi del giocatore in basso
+            dist_right_bot = np.linalg.norm(ball_pos - np.array(rightwrist_positions_bot[j]))
+            dist_left_bot = np.linalg.norm(ball_pos - np.array(leftwrist_positions_bot[j]))
 
-        if (dist_right_top < height_values_top[i] or dist_left_top < height_values_top[i] or
-            dist_right_bot < height_values_bot[i] or dist_left_bot < height_values_bot[i]):
-            hits.append(i)
+            if (dist_right_top < height_values_top[j]*10 or dist_left_top < height_values_top[j]*10 or
+                dist_right_bot < height_values_bot[j]*10 or dist_left_bot < height_values_bot[j]*10):
+                hits.append(j)
+                break
+
+    #print("GRADIENT ON Y:")
+    #print(velocities)
+    #print("DETECTED HITS")
+    #print(hits)
+    return hits, velocities
+
+def detect_racket_hits(ball_positions, rightwrist_positions_top, leftwrist_positions_top, rightwrist_positions_bot, leftwrist_positions_bot, height_values_top, height_values_bot):
+    hits = []
+    window = 49
+    poly_order = 2
+    global res_height
+    global res_width
+
+    ball_positions_array = np.array(ball_positions)
+    y_positions = ball_positions_array[:, 1]
+    smoothed_y_positions = savgol_filter(y_positions, window, poly_order)
+
+    velocities = savgol_filter(y_positions, window, poly_order, deriv=1)  # Calcolo della derivata rispetto all'asse verticale
+    accelerations = np.gradient(velocities)
+
+    plotgraph(smoothed_y_positions, "Frame", "y Position", "pC.jpg")
+    plotgraph(velocities, "Frame", "y Velocity", "vC.jpg")
+    plotgraph(accelerations, "Frame", "y Accelerations", "aC.jpg")
+    #for i in range(3, len(ball_positions)-3):
+        #if (velocities[i] >= 0 and velocities[i-1] < 0) or (velocities[i] < 0 and velocities[i-1] >= 0):
+        #   if velocities[i+1] >= 0 and velocities[i-2] < 0 or velocities[i+1] < 0 and velocities[i-2] >= 0:
+        #        hits.append(i)
+
+    sign_changes = np.where(np.diff(np.sign(velocities)))[0]
+
+    for i in sign_changes:
+        print("Detected racket hit: ")
+        print(i)
+        append_flag = False
+        min_player_distance = float('inf')
+        frame_ball_closest_to_player = i
+        default_minimum_radius = 100 # pixel
+        window = 20
+
+        for j in range(max(0, i-window), min(len(ball_positions_array), i+window)):
+            if j >= len(ball_positions_array):  # Assicurarsi di non superare i limiti dell'array
+                break
+            ball_pos = ball_positions_array[j]
+            if np.array_equal(ball_pos, np.array([0, 0])):
+                break
+            
+            # Distanza dai polsi del giocatore in alto
+            dist_right_top = np.linalg.norm(ball_pos - np.array(rightwrist_positions_top[j]))
+            dist_left_top = np.linalg.norm(ball_pos - np.array(leftwrist_positions_top[j]))
+            
+            # Distanza dai polsi del giocatore in basso
+            dist_right_bot = np.linalg.norm(ball_pos - np.array(rightwrist_positions_bot[j]))
+            dist_left_bot = np.linalg.norm(ball_pos - np.array(leftwrist_positions_bot[j]))
+
+            if (dist_right_top < max(height_values_top[j]*10, default_minimum_radius) or dist_left_top < max(height_values_top[j]*10, default_minimum_radius) or
+                dist_right_bot < max(height_values_bot[j]*10, default_minimum_radius) or dist_left_bot < max(height_values_bot[j]*10, default_minimum_radius)):
+                append_flag = True
+                distances_min = min(dist_right_top, dist_left_top, dist_right_bot, dist_left_bot)
+                if distances_min < min_player_distance:
+                    min_player_distance = distances_min
+                    frame_ball_closest_to_player = j
+            
+        if append_flag:
+                hits.append(frame_ball_closest_to_player)
 
     #print("GRADIENT ON Y:")
     #print(velocities)
@@ -890,7 +961,7 @@ threshold_moving = 5
 ############## Task 3 ###################
 
 # Loading of the clip to analyze
-video_path = "resources/tennis2.mp4"
+video_path = "resources/tennis2full.mp4"
 total_frames = get_total_frames(video_path)
 cap = cv2.VideoCapture(video_path)
 
