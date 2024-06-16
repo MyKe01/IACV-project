@@ -1165,7 +1165,7 @@ result = cv2.VideoWriter('processed_winfo.mp4',
                          60, (image.shape[1] + rectified_image.shape[1], 720))
 
 
-racket_hits, velocity = detect_racket_hits(ball_positions)
+racket_hits, velocity = detect_racket_hits(ball_positions, rightwrist_positions_top, leftwrist_positions_top, rightwrist_positions_bot, leftwrist_positions_bot, height_values_top, height_values_bot)
 print("Detected racket hits:", racket_hits)
 j = 0
 hits = 0
