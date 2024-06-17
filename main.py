@@ -351,13 +351,13 @@ def autoComputeHomography(video, frm, NtopLeftP, NtopRightP, NbottomLeftP, Nbott
         if (not(topLeftP == NtopLeftP)) and (not(topRightP == NtopRightP)) and (not(bottomLeftP == NbottomLeftP)) and (not(bottomRightP == NbottomRightP)):
             
 
-            if(NtopLeftP == None or np.linalg.norm(np.array(NtopLeftP) - np.array(topLeftP)) < threshold) : 
+            if(NtopLeftP == None or abs(np.array(NtopLeftP) - np.array(topLeftP)) < threshold) : 
                 NtopLeftP = topLeftP
-            if(NtopRightP == None or np.linalg.norm(np.array(NtopRightP) - np.array(topRightP)) < threshold) : 
+            if(NtopRightP == None or abs(np.array(NtopRightP) - np.array(topRightP)) < threshold) : 
                 NtopRightP = topRightP
-            if(NbottomLeftP == None or np.linalg.norm(np.array(NbottomLeftP) - np.array(bottomLeftP)) < threshold) : 
+            if(NbottomLeftP == None or abs(np.array(NbottomLeftP) - np.array(bottomLeftP)) < threshold) : 
                 NbottomLeftP = bottomLeftP
-            if(NbottomRightP == None or np.linalg.norm(np.array(NbottomRightP) - np.array(bottomRightP)) < threshold) : 
+            if(NbottomRightP == None or abs(np.array(NbottomRightP) - np.array(bottomRightP)) < threshold) : 
                 NbottomRightP = bottomRightP
             
             if frm is not None : 
