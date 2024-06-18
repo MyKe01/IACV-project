@@ -111,27 +111,40 @@ def computePoseAndAnkles(cropped_frame, static_centers_queue, mpPose, pose, mpDr
 
     # Feet Movement Detection
     if prev_right_ankle is not None and prev_left_ankle is not None:
-            
-        left_foot_moved = np.linalg.norm(np.array(Pleft_image) - np.array(prev_left_ankle)) > threshold                              # Euclidean distance computation between the current Left foot position and its position in the previous frame, all compared to the chosen threshold 
-        right_foot_moved = np.linalg.norm(np.array(Pright_image) - np.array(prev_right_ankle)) > threshold                           # Euclidean distance computation between the current Right foot position and its position in the previous frame, all compared to the chosen threshold                
-        if left_ankle !=(0,0):                                                                                                                                # Check if the left ankle's point has been detected 
-            if left_foot_moved:                                                                                                                         # Check if the left foot has moved 
-                cv2.putText(cropped_frame, f"(LFoot) Moving", (left_ankle[0] +10, left_ankle[1] + 40), font, font_scale, color, thickness, cv2.LINE_AA)            # Display "(LFoot) Moving" under the player's left foot using the image coordinates of the left foot with an offset  
+        # Euclidean distance computation between the current Left foot position and its position in the previous frame, all compared to the chosen threshold            
+        left_foot_moved = np.linalg.norm(np.array(Pleft_image) - np.array(prev_left_ankle)) > threshold 
+        # Euclidean distance computation between the current Right foot position and its position in the previous frame, all compared to the chosen threshold                
+        right_foot_moved = np.linalg.norm(np.array(Pright_image) - np.array(prev_right_ankle)) > threshold
+    
+        # Check if the left ankle's point has been detected 
+        if left_ankle !=(0,0):                                                                                                                                         
+            # Check if the left foot has moved 
+            if left_foot_moved:                                                                     
+                # Display "(LFoot) Moving" under the player's left foot using the image coordinates of the left foot with an offset  
+                cv2.putText(cropped_frame, f"(LFoot) Moving", (left_ankle[0] +10, left_ankle[1] + 40), font, font_scale, color, thickness, cv2.LINE_AA)            
             else:
                 #print(str(Pleft_image) + " " + str(prev_left_ankle))
-                cv2.putText(cropped_frame, f"(LFoot) Static", (left_ankle[0] +10, left_ankle[1] + 40), font, font_scale, color, thickness, cv2.LINE_AA)            # Display "(LFoot) Static" under the player's left foot using the image coordinates of the left foot with an offset  
-        if right_ankle!=(0,0):                                                                                                                                # Check if the right ankle's point has been detected
-            if  right_foot_moved:                                                                                                                       # Check if the right foot has moved            
-                cv2.putText(cropped_frame, f"(RFoot) Moving", (right_ankle[0] +10, right_ankle[1] -20 ), font, font_scale, color, thickness, cv2.LINE_AA)          # Display "(RFoot) Moving" under the player's right foot using the image coordinates of the left foot with an offset  
+                # Display "(LFoot) Static" under the player's left foot using the image coordinates of the left foot with an offset  
+                cv2.putText(cropped_frame, f"(LFoot) Static", (left_ankle[0] +10, left_ankle[1] + 40), font, font_scale, color, thickness, cv2.LINE_AA)            
+        # Check if the right ankle's point has been detected
+        if right_ankle!=(0,0):                                                                                                                                
+            # Check if the right foot has moved            
+            if  right_foot_moved:                                                                                                                       
+                # Display "(RFoot) Moving" under the player's right foot using the image coordinates of the left foot with an offset  
+                cv2.putText(cropped_frame, f"(RFoot) Moving", (right_ankle[0] +10, right_ankle[1] -20 ), font, font_scale, color, thickness, cv2.LINE_AA)          
             else: 
+                # Display "(RFoot) Static" under the player's right foot using the image coordinates of the right foot with an offset
                 #print(str(Pright_image) + " " + str(prev_right_ankle))
-                cv2.putText(cropped_frame, f"(RFoot) Static", (right_ankle[0] +10, right_ankle[1] -20 ), font, font_scale, color, thickness, cv2.LINE_AA)          # Display "(RFoot) Static" under the player's right foot using the image coordinates of the right foot with an offset
+                cv2.putText(cropped_frame, f"(RFoot) Static", (right_ankle[0] +10, right_ankle[1] -20 ), font, font_scale, color, thickness, cv2.LINE_AA)          
     
-    prev_left_ankle[0] = Pleft_image[0]
-    prev_left_ankle[1] = Pleft_image[1]                                                                                                                  # Update the values of the field coordinates of the feet from the previous frame  with the current ones
-                                                                                                                      # Update the values of the field coordinates of the feet from the previous frame  with the current ones
-    prev_right_ankle[0] = Pright_image[0]
-    prev_right_ankle[1] = Pright_image[1]
+    if(prev_left_ankle is None or computeMoving) : 
+        # Update the values of the field coordinates of the feet from the previous frame  with the current ones
+        prev_left_ankle[0] = Pleft_image[0]
+        prev_left_ankle[1] = Pleft_image[1]                                                                                                                 
+    if(prev_right_ankle is None or computeMoving) :  
+        # Update the values of the field coordinates of the feet from the previous frame  with the current ones
+        prev_right_ankle[0] = Pright_image[0]
+        prev_right_ankle[1] = Pright_image[1]
     
     # Computing the center position of the player in the real field (top view)
     center_real = tuple((int((Pright_image[0] + Pleft_image[0])/2), int((Pright_image[1] + Pleft_image[1])/2)))  
@@ -957,7 +970,7 @@ prev_PleftA_image = [0,0]
 prev_PrightA_image =[0,0]
 prev_PleftB_image = [0,0]
 prev_PrightB_image =[0,0]
-threshold_moving = 5
+threshold_moving = 10
 ############## Task 3 ###################
 
 # Loading of the clip to analyze
@@ -966,7 +979,7 @@ total_frames = get_total_frames(video_path)
 cap = cv2.VideoCapture(video_path)
 
 
-# Calculate homography
+# Calculate homography taking the first frame of the video
 #field_points_2D = []
 homography_matrix, field_points_2D = autoComputeHomography(cap,None, None, None, None, None)
 
@@ -988,6 +1001,7 @@ stationary_points_B = list()
 image = cv2.imread(image_path)
 image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB) #set the color from BGR to RGB
 
+#Rectifying the image using the homography matrix found previously
 #changing the rectified image to "clean" it from the previous drawings of the center
 rectified_image = cv2.warpPerspective(image, homography_matrix, (image.shape[1], image.shape[0]))
 
@@ -1062,8 +1076,14 @@ cap = cv2.VideoCapture(video_path)
 # First Main Loop
 print("\nBall positions detected:")
 i=0
-
+computeMoving = False
 while cv2.waitKey(1) < 0:
+
+    if i%20 == 0 : 
+        computeMoving = True
+    else : 
+        computeMoving = False
+
     hasFrame, frame = cap.read()
     if not hasFrame:
         # cv2.waitKey()
@@ -1085,16 +1105,16 @@ while cv2.waitKey(1) < 0:
     #creating two threads to improve performances for the detection of the pose
     th_A = threading.Thread(target=computePoseAndAnkles, args=(cropped_frame_bot, stationary_points_A, mpPose_A, pose_A, mpDraw_A, homography_matrix, prev_PrightA_image, prev_PleftA_image, threshold_moving, min_x_bot_pl, min_y_bot_pl, rectified_image, rightwrist_stack_bot, leftwrist_stack_bot, height_bot_buffer))
     th_B = threading.Thread(target=computePoseAndAnkles, args=(cropped_frame_top, stationary_points_B, mpPose_B, pose_B, mpDraw_B, homography_matrix, prev_PrightB_image, prev_PleftB_image, threshold_moving, min_x_top_pl,  min_y_top_pl, rectified_image, rightwrist_stack_top, leftwrist_stack_top, height_top_buffer))
-    th_C = threading.Thread(target=processBallTrajectory, args=(ball_detector, frame, positions_stack))
+    #th_C = threading.Thread(target=processBallTrajectory, args=(ball_detector, frame, positions_stack))
     
     th_A.start()
     th_B.start()
-    th_C.start()
+    #th_C.start()
     th_A.join()
     th_B.join()
-    th_C.join()
+    #th_C.join()
 
-    ballpos = positions_stack.pop()
+    #ballpos = positions_stack.pop()
 
     rightwrist_top = rightwrist_stack_top.pop()
     leftwrist_top = leftwrist_stack_top.pop()
@@ -1123,19 +1143,19 @@ while cv2.waitKey(1) < 0:
     frame[min_y_bot_pl:max_y_bot_pl, min_x_bot_pl:max_x_bot_pl] = cropped_frame_bot
     frame[min_y_top_pl:max_y_top_pl, min_x_top_pl:max_x_top_pl] = cropped_frame_top
 
-    ballpos_real = (0,0)
-    if ballpos != (0,0):
-        cv2.circle(frame, ballpos, 5, (0, 255, 0), cv2.FILLED)
-        #ballpos_array = np.array([[ballpos[0], ballpos[1]]], dtype=np.float32)
-        #ballpos_array = np.reshape(ballpos_array, (1,1,2))
-        #transformedpos = map_2d_to_3d(P, np.array([ballpos]))
-        #ballpos_real = (round(transformedpos[0][0]), round(transformedpos[0][1]))
-        #cv2.circle(rectified_image, ballpos_real , 5, (255, 255, 0), cv2.FILLED)
-    ball_positions.append(ballpos)
+   #ballpos_real = (0,0)
+   #if ballpos != (0,0):
+   #    cv2.circle(frame, ballpos, 5, (0, 255, 0), cv2.FILLED)
+   #    #ballpos_array = np.array([[ballpos[0], ballpos[1]]], dtype=np.float32)
+   #    #ballpos_array = np.reshape(ballpos_array, (1,1,2))
+   #    #transformedpos = map_2d_to_3d(P, np.array([ballpos]))
+   #    #ballpos_real = (round(transformedpos[0][0]), round(transformedpos[0][1]))
+   #    #cv2.circle(rectified_image, ballpos_real , 5, (255, 255, 0), cv2.FILLED)
+   #ball_positions.append(ballpos)
     #ball_positions_real.append(ballpos_real)
 
     percent = i/total_frames*100
-    print(f"FRAME {i}: {ballpos}; - {percent:.1f}%")
+    #print(f"FRAME {i}: {ballpos}; - {percent:.1f}%")
 
     # Putting ball position into perspective
     #real_ball_pos = cv2.perspectiveTransform(ballpos, homography_matrix)
@@ -1170,109 +1190,109 @@ cv2.destroyAllWindows()
 #    print("Execution stopped by user")
 #    sys.exit()
 
-interpolated_samples = interpolate_missing_values(ball_positions)
-print("\nInterpolation:\n")
-for r in interpolated_samples:
-    print(f"FRAME: {r}")
-    print(f"--> {ball_positions[r]}")
+#interpolated_samples = interpolate_missing_values(ball_positions)
+#print("\nInterpolation:\n")
+#for r in interpolated_samples:
+#    print(f"FRAME: {r}")
+#    print(f"--> {ball_positions[r]}")
+#
+#cap = cv2.VideoCapture("raw.mp4")
+#
+#result = cv2.VideoWriter('processed.mp4',
+#                         cv2.VideoWriter_fourcc(*'mp4v'),
+#                         60, (image.shape[1] + rectified_image.shape[1], 720))
+#
+#print("\nInterpolation Completed. Drawing...\n")
 
-cap = cv2.VideoCapture("raw.mp4")
-
-result = cv2.VideoWriter('processed.mp4',
-                         cv2.VideoWriter_fourcc(*'mp4v'),
-                         60, (image.shape[1] + rectified_image.shape[1], 720))
-
-print("\nInterpolation Completed. Drawing...\n")
-
-j = 0
-while cv2.waitKey(1) < 0:
-    
-    hasFrame, frame = cap.read()
-    if not hasFrame:
-        break
-    
-    percent = j/i*100
-    print(f"{percent:.1f}%")
-
-    #if j in interpolated_samples:
-
-        #Regular Pitch View: adding of interpolated ball position
-    #    original_frame_extr = frame[0:res_height,0:res_width]
-    #    cv2.circle(original_frame_extr, ball_positions[j], 7, (0,0,255), cv2.FILLED) 
-
-        #Top Pitch View: adding of interpolated ball position
-    #    rectified_image_extr = frame[0:res_height, res_width+1:frame.shape[1]]
-    #    interpolatedballpos = ball_positions[j]
-        #ballpos_array = np.array([[interpolatedballpos[0], interpolatedballpos[1]]], dtype=np.float32)
-        #ballpos_array = np.reshape(ballpos_array, (1,1,2))
-        #transformedpos = map_2d_to_3d(P, np.array([interpolatedballpos]))
-        #ballpos_real = (round(transformedpos[0][0]), round(transformedpos[0][1]))
-        #cv2.circle(rectified_image_extr, ballpos_real , 5, (255, 255, 0), cv2.FILLED)
-
-        #height = max(frame.shape[0], rectified_image_extr.shape[0])
-        #original_frame_extr = cv2.resize(original_frame_extr, (int(original_frame_extr.shape[1] * height / original_frame_extr.shape[0]), height))
-        #rectified_image = cv2.resize(rectified_image_extr, (int(rectified_image_extr.shape[1] * height / rectified_image_extr.shape[0]), height))
-    #    frame = cv2.hconcat([original_frame_extr, rectified_image_extr])
-        #cv2.imshow(f'Frame Interpolated: {j}', frame)
-    
-    if j in interpolated_samples:
-        cv2.circle(frame, ball_positions[j], 7, (0, 0, 255), cv2.FILLED)   
-        #cv2.imshow(f'Frame Interpolated: {j}', frame)
-
-    result.write(frame) 
-    j +=1
-cap.release()
-result.release()
-cv2.destroyAllWindows()
-print("The video was successfully processed")
-
-
-cap = cv2.VideoCapture("processed.mp4")
-
-
-
-result = cv2.VideoWriter('processed_winfo.mp4',
-                         cv2.VideoWriter_fourcc(*'mp4v'),
-                         60, (image.shape[1] + rectified_image.shape[1], 720))
-
-
-racket_hits, velocity = detect_racket_hits(ball_positions, rightwrist_positions_top, leftwrist_positions_top, rightwrist_positions_bot, leftwrist_positions_bot, height_values_top, height_values_bot)
-print("Detected racket hits:", racket_hits)
-j = 0
-hits = 0
-while cv2.waitKey(1) < 0:
-    
-    hasFrame, frame = cap.read()
-    if not hasFrame:
-        break
-    
-    percent = j/i*100
-    print(f"{percent:.1f}%")
-
-    if j > 5:
-        ypos = f"Y(curr): {ball_positions[j][1]}"
-        ypos1 = f"Y(-1): {ball_positions[j-1][1]}"
-        ypos2 = f"Y(-2): {ball_positions[j-2][1]}"
-        ypos3 = f"Y(-3): {ball_positions[j-3][1]}"
-        ypos4 = f"Y(-4): {ball_positions[j-4][1]}"
-        cv2.putText(frame, ypos, (50, 350), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255,255,255), 2)
-        cv2.putText(frame, ypos1, (50, 370), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255,255,255), 2)
-        cv2.putText(frame, ypos2, (50, 390), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255,255,255), 2)
-        cv2.putText(frame, ypos3, (50, 410), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255,255,255), 2)
-        cv2.putText(frame, ypos4, (50, 430), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255,255,255), 2)
-
-    vel =  f"Y speed: {velocity[j]:.2f}"
-    cv2.putText(frame, vel, (50, 150), cv2.FONT_HERSHEY_SIMPLEX, 1, (0,255,255), 2)
-    
-    if j in racket_hits:
-        hits += 1
-    text_rackethits = f"Racket Hits: {hits}"
-    cv2.putText(frame, text_rackethits, (50, 250), cv2.FONT_HERSHEY_SIMPLEX, 1, (0,255,0), 2)   
-    
-    result.write(frame)
-    j +=1
-
-cap.release()
-result.release()
-cv2.destroyAllWindows()
+#j = 0
+#while cv2.waitKey(1) < 0:
+#    
+#    hasFrame, frame = cap.read()
+#    if not hasFrame:
+#        break
+#    
+#    percent = j/i*100
+#    print(f"{percent:.1f}%")
+#
+#    #if j in interpolated_samples:
+#
+#        #Regular Pitch View: adding of interpolated ball position
+#    #    original_frame_extr = frame[0:res_height,0:res_width]
+#    #    cv2.circle(original_frame_extr, ball_positions[j], 7, (0,0,255), cv2.FILLED) 
+#
+#        #Top Pitch View: adding of interpolated ball position
+#    #    rectified_image_extr = frame[0:res_height, res_width+1:frame.shape[1]]
+#    #    interpolatedballpos = ball_positions[j]
+#        #ballpos_array = np.array([[interpolatedballpos[0], interpolatedballpos[1]]], dtype=np.float32)
+#        #ballpos_array = np.reshape(ballpos_array, (1,1,2))
+#        #transformedpos = map_2d_to_3d(P, np.array([interpolatedballpos]))
+#        #ballpos_real = (round(transformedpos[0][0]), round(transformedpos[0][1]))
+#        #cv2.circle(rectified_image_extr, ballpos_real , 5, (255, 255, 0), cv2.FILLED)
+#
+#        #height = max(frame.shape[0], rectified_image_extr.shape[0])
+#        #original_frame_extr = cv2.resize(original_frame_extr, (int(original_frame_extr.shape[1] * height / original_frame_extr.shape[0]), height))
+#        #rectified_image = cv2.resize(rectified_image_extr, (int(rectified_image_extr.shape[1] * height / rectified_image_extr.shape[0]), height))
+#    #    frame = cv2.hconcat([original_frame_extr, rectified_image_extr])
+#        #cv2.imshow(f'Frame Interpolated: {j}', frame)
+#    
+#    if j in interpolated_samples:
+#        cv2.circle(frame, ball_positions[j], 7, (0, 0, 255), cv2.FILLED)   
+#        #cv2.imshow(f'Frame Interpolated: {j}', frame)
+#
+#    result.write(frame) 
+#    j +=1
+#cap.release()
+#result.release()
+#cv2.destroyAllWindows()
+#print("The video was successfully processed")
+#
+#
+#cap = cv2.VideoCapture("processed.mp4")
+#
+#
+#
+#result = cv2.VideoWriter('processed_winfo.mp4',
+#                         cv2.VideoWriter_fourcc(*'mp4v'),
+#                         60, (image.shape[1] + rectified_image.shape[1], 720))
+#
+#
+#racket_hits, velocity = detect_racket_hits(ball_positions, rightwrist_positions_top, leftwrist_positions_top, rightwrist_positions_bot, leftwrist_positions_bot, height_values_top, height_values_bot)
+#print("Detected racket hits:", racket_hits)
+#j = 0
+#hits = 0
+#while cv2.waitKey(1) < 0:
+#    
+#    hasFrame, frame = cap.read()
+#    if not hasFrame:
+#        break
+#    
+#    percent = j/i*100
+#    print(f"{percent:.1f}%")
+#
+#    if j > 5:
+#        ypos = f"Y(curr): {ball_positions[j][1]}"
+#        ypos1 = f"Y(-1): {ball_positions[j-1][1]}"
+#        ypos2 = f"Y(-2): {ball_positions[j-2][1]}"
+#        ypos3 = f"Y(-3): {ball_positions[j-3][1]}"
+#        ypos4 = f"Y(-4): {ball_positions[j-4][1]}"
+#        cv2.putText(frame, ypos, (50, 350), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255,255,255), 2)
+#        cv2.putText(frame, ypos1, (50, 370), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255,255,255), 2)
+#        cv2.putText(frame, ypos2, (50, 390), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255,255,255), 2)
+#        cv2.putText(frame, ypos3, (50, 410), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255,255,255), 2)
+#        cv2.putText(frame, ypos4, (50, 430), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255,255,255), 2)
+#
+#    vel =  f"Y speed: {velocity[j]:.2f}"
+#    cv2.putText(frame, vel, (50, 150), cv2.FONT_HERSHEY_SIMPLEX, 1, (0,255,255), 2)
+#    
+#    if j in racket_hits:
+#        hits += 1
+#    text_rackethits = f"Racket Hits: {hits}"
+#    cv2.putText(frame, text_rackethits, (50, 250), cv2.FONT_HERSHEY_SIMPLEX, 1, (0,255,0), 2)   
+#    
+#    result.write(frame)
+#    j +=1
+#
+#cap.release()
+#result.release()
+#cv2.destroyAllWindows()
 print("The video was successfully processed")
