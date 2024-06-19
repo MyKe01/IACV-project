@@ -49,7 +49,6 @@ def computePoseAndAnkles(cropped_frame, static_centers_queue, mpPose, pose, mpDr
     #print(results.pose_landmarks)
     right_ankle, left_ankle = (0,0),(0,0)
     Pright_image, Pleft_image = (0,0),(0,0)
-
     #global right_wrist # Required for Racket Hit detection
     #global left_wrist # Required for Racket Hit detection
     
@@ -121,22 +120,23 @@ def computePoseAndAnkles(cropped_frame, static_centers_queue, mpPose, pose, mpDr
             # Check if the left foot has moved 
             if left_foot_moved:                                                                     
                 # Display "(LFoot) Moving" under the player's left foot using the image coordinates of the left foot with an offset  
-                cv2.putText(cropped_frame, f"(LFoot) Moving", (left_ankle[0] +10, left_ankle[1] + 40), font, font_scale, color, thickness, cv2.LINE_AA)            
+                cv2.putText(cropped_frame, "(LFoot) Moving " + str(Pleft_image[0])+ ", " + str(Pleft_image[1]), (left_ankle[0] +10, left_ankle[1] + 40), font, font_scale, color, thickness, cv2.LINE_AA)            
             else:
                 #print(str(Pleft_image) + " " + str(prev_left_ankle))
                 # Display "(LFoot) Static" under the player's left foot using the image coordinates of the left foot with an offset  
-                cv2.putText(cropped_frame, f"(LFoot) Static", (left_ankle[0] +10, left_ankle[1] + 40), font, font_scale, color, thickness, cv2.LINE_AA)            
+                cv2.putText(cropped_frame, "(LFoot) Static " + str(Pleft_image[0])+ ", " + str(Pleft_image[1]), (left_ankle[0] +10, left_ankle[1] + 40), font, font_scale, color, thickness, cv2.LINE_AA)            
         # Check if the right ankle's point has been detected
-        if right_ankle!=(0,0):                                                                                                                                
-            # Check if the right foot has moved            
-            if  right_foot_moved:                                                                                                                       
+        if right_ankle!=(0,0):
+            # Check if the right foot has moved
+            if  right_foot_moved:
                 # Display "(RFoot) Moving" under the player's right foot using the image coordinates of the left foot with an offset  
-                cv2.putText(cropped_frame, f"(RFoot) Moving", (right_ankle[0] +10, right_ankle[1] -20 ), font, font_scale, color, thickness, cv2.LINE_AA)          
-            else: 
+                cv2.putText(cropped_frame, "(RFoot) Moving " + str(Pright_image[0])+ ", " + str(Pright_image[1]), (right_ankle[0] +10, right_ankle[1] -20 ), font, font_scale, color, thickness, cv2.LINE_AA)          
+            else:
                 # Display "(RFoot) Static" under the player's right foot using the image coordinates of the right foot with an offset
                 #print(str(Pright_image) + " " + str(prev_right_ankle))
-                cv2.putText(cropped_frame, f"(RFoot) Static", (right_ankle[0] +10, right_ankle[1] -20 ), font, font_scale, color, thickness, cv2.LINE_AA)          
+                cv2.putText(cropped_frame, "(RFoot) Static "  + str(Pright_image[0])+ ", " + str(Pright_image[1]),  (right_ankle[0] +10, right_ankle[1] -20 ), font, font_scale, color, thickness, cv2.LINE_AA)          
     
+    print(str(computeMoving))
     if(prev_left_ankle is None or computeMoving) : 
         # Update the values of the field coordinates of the feet from the previous frame  with the current ones
         prev_left_ankle[0] = Pleft_image[0]
@@ -418,7 +418,25 @@ def autoComputeHomography(video, frm, NtopLeftP, NtopRightP, NbottomLeftP, Nbott
             points_array = [NtopLeftP, NtopRightP, NbottomRightP, NbottomLeftP]
             # Calculate homography
             homography_matrix = calculate_homography(np.array(points_array), points_array, field_length, field_width)
-            return homography_matrix, points_array
+            
+            NtopRightP = np.array([[NtopRightP[0], NtopRightP[1]]], dtype=np.float32)
+            NtopRightP = np.reshape(NtopRightP, (1,1,2))
+            NtopLeftP = np.array([[NtopLeftP[0], NtopLeftP[1]]], dtype=np.float32)
+            NtopLeftP = np.reshape(NtopLeftP, (1,1,2))
+            NbottomLeftP = np.array([[NbottomLeftP[0], NbottomLeftP[1]]], dtype=np.float32)
+            NbottomLeftP = np.reshape(NbottomLeftP, (1,1,2))
+            NbottomRightP = np.array([[NbottomRightP[0], NbottomRightP[1]]], dtype=np.float32)
+            NbottomRightP = np.reshape(NbottomRightP, (1,1,2))
+                
+            real_NtopRightP = cv2.perspectiveTransform(NtopRightP,homography_matrix)
+            real_NtopLeftP = cv2.perspectiveTransform(NtopLeftP,homography_matrix)
+            real_NbottomLeftP = cv2.perspectiveTransform(NbottomLeftP,homography_matrix)
+            real_NbottomRightP= cv2.perspectiveTransform(NbottomRightP,homography_matrix)
+            ratio =  np.linalg.norm(np.array(real_NtopRightP) - np.array(real_NtopLeftP)) /field_width
+            ratio2 =  np.linalg.norm(np.array(real_NtopRightP) - np.array(real_NbottomRightP))/field_length
+            print("RATIO px/meter: " + str(ratio)+ " . "  + str(ratio2))
+        
+            return homography_matrix, points_array, ratio
 
         else:
              if frm is not None : 
@@ -970,7 +988,6 @@ prev_PleftA_image = [0,0]
 prev_PrightA_image =[0,0]
 prev_PleftB_image = [0,0]
 prev_PrightB_image =[0,0]
-threshold_moving = 10
 ############## Task 3 ###################
 
 # Loading of the clip to analyze
@@ -981,8 +998,10 @@ cap = cv2.VideoCapture(video_path)
 
 # Calculate homography taking the first frame of the video
 #field_points_2D = []
-homography_matrix, field_points_2D = autoComputeHomography(cap,None, None, None, None, None)
+homography_matrix, field_points_2D, ratiopxpermtr = autoComputeHomography(cap,None, None, None, None, None)
 
+#since the field width has been scaled by scale_factor, the real ratio has to be multiplied by scale_factor
+ratiopxpermtr = ratiopxpermtr * scale_factor
 mpPose_A = mp.solutions.pose
 pose_A = mpPose_A.Pose()
 mpDraw_A = mp.solutions.drawing_utils
@@ -995,8 +1014,8 @@ mpDraw_B = mp.solutions.drawing_utils
 # each landmark has an id - https://developers.google.com/mediapipe/solutions/vision/pose_landmarker
 # ids 28 and 27 are for right and left ankle
 # lists of the static points of the two players (A -> DOWN , B -> UP)
-stationary_points_A = list()
-stationary_points_B = list()
+stationary_points_bot = list()
+stationary_points_top = list()
 
 image = cv2.imread(image_path)
 image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB) #set the color from BGR to RGB
@@ -1077,13 +1096,19 @@ cap = cv2.VideoCapture(video_path)
 print("\nBall positions detected:")
 i=0
 computeMoving = False
+threshold_moving = 5
+counter = 0
+dist_top = 0
+dist_bot = 0
 while cv2.waitKey(1) < 0:
 
-    if i%20 == 0 : 
+    if counter%5 == 0 : 
         computeMoving = True
     else : 
+        print(str(i))
         computeMoving = False
 
+    counter +=1
     hasFrame, frame = cap.read()
     if not hasFrame:
         # cv2.waitKey()
@@ -1103,10 +1128,13 @@ while cv2.waitKey(1) < 0:
     cropped_frame_bot = frame[min_y_bot_pl:max_y_bot_pl, min_x_bot_pl:max_x_bot_pl].copy()
     
     #creating two threads to improve performances for the detection of the pose
-    th_A = threading.Thread(target=computePoseAndAnkles, args=(cropped_frame_bot, stationary_points_A, mpPose_A, pose_A, mpDraw_A, homography_matrix, prev_PrightA_image, prev_PleftA_image, threshold_moving, min_x_bot_pl, min_y_bot_pl, rectified_image, rightwrist_stack_bot, leftwrist_stack_bot, height_bot_buffer))
-    th_B = threading.Thread(target=computePoseAndAnkles, args=(cropped_frame_top, stationary_points_B, mpPose_B, pose_B, mpDraw_B, homography_matrix, prev_PrightB_image, prev_PleftB_image, threshold_moving, min_x_top_pl,  min_y_top_pl, rectified_image, rightwrist_stack_top, leftwrist_stack_top, height_top_buffer))
+    th_A = threading.Thread(target=computePoseAndAnkles, args=(cropped_frame_bot, stationary_points_bot, mpPose_A, pose_A, mpDraw_A, homography_matrix, prev_PrightA_image, prev_PleftA_image, threshold_moving, min_x_bot_pl, min_y_bot_pl, rectified_image, rightwrist_stack_bot, leftwrist_stack_bot, height_bot_buffer))
+    th_B = threading.Thread(target=computePoseAndAnkles, args=(cropped_frame_top, stationary_points_top, mpPose_B, pose_B, mpDraw_B, homography_matrix, prev_PrightB_image, prev_PleftB_image, threshold_moving, min_x_top_pl,  min_y_top_pl, rectified_image, rightwrist_stack_top, leftwrist_stack_top, height_top_buffer))
     #th_C = threading.Thread(target=processBallTrajectory, args=(ball_detector, frame, positions_stack))
-    
+         
+    #stationary_points_bot = stationary_points_bot[::60]
+    #stationary_points_top = stationary_points_top[::60]
+
     th_A.start()
     th_B.start()
     #th_C.start()
@@ -1143,16 +1171,16 @@ while cv2.waitKey(1) < 0:
     frame[min_y_bot_pl:max_y_bot_pl, min_x_bot_pl:max_x_bot_pl] = cropped_frame_bot
     frame[min_y_top_pl:max_y_top_pl, min_x_top_pl:max_x_top_pl] = cropped_frame_top
 
-   #ballpos_real = (0,0)
-   #if ballpos != (0,0):
-   #    cv2.circle(frame, ballpos, 5, (0, 255, 0), cv2.FILLED)
-   #    #ballpos_array = np.array([[ballpos[0], ballpos[1]]], dtype=np.float32)
-   #    #ballpos_array = np.reshape(ballpos_array, (1,1,2))
-   #    #transformedpos = map_2d_to_3d(P, np.array([ballpos]))
-   #    #ballpos_real = (round(transformedpos[0][0]), round(transformedpos[0][1]))
-   #    #cv2.circle(rectified_image, ballpos_real , 5, (255, 255, 0), cv2.FILLED)
-   #ball_positions.append(ballpos)
-    #ball_positions_real.append(ballpos_real)
+    #ballpos_real = (0,0)
+    #if ballpos != (0,0):
+    #    cv2.circle(frame, ballpos, 5, (0, 255, 0), cv2.FILLED)
+    #    #ballpos_array = np.array([[ballpos[0], ballpos[1]]], dtype=np.float32)
+    #    #ballpos_array = np.reshape(ballpos_array, (1,1,2))
+    #    #transformedpos = map_2d_to_3d(P, np.array([ballpos]))
+    #    #ballpos_real = (round(transformedpos[0][0]), round(transformedpos[0][1]))
+    #    #cv2.circle(rectified_image, ballpos_real , 5, (255, 255, 0), cv2.FILLED)
+    #ball_positions.append(ballpos)
+    ##ball_positions_real.append(ballpos_real)
 
     percent = i/total_frames*100
     #print(f"FRAME {i}: {ballpos}; - {percent:.1f}%")
@@ -1170,6 +1198,28 @@ while cv2.waitKey(1) < 0:
     frame = cv2.resize(frame, (int(frame.shape[1] * height / frame.shape[0]), height))
     rectified_image = cv2.resize(rectified_image, (int(rectified_image.shape[1] * height / rectified_image.shape[0]), height))
     rectified_image = cv2.cvtColor(rectified_image, cv2.COLOR_RGB2BGR)
+    
+    if len(stationary_points_bot)!=0 : 
+        dist_bot = 0
+        cv2.circle(rectified_image, stationary_points_bot[0], 2, (125, 125, 125), cv2.FILLED)
+        for i in range(1,len(stationary_points_bot)):
+            cv2.circle(rectified_image, stationary_points_bot[i], 2, (125, 125, 125), cv2.FILLED)
+            cv2.line(rectified_image, stationary_points_bot[i-1],stationary_points_bot[i], (125,125,125), 3)
+            dist_bot += np.linalg.norm(np.array(stationary_points_bot[i]) - np.array(stationary_points_bot[i-1]))/ratiopxpermtr
+    print("LEN BOT " + str(len(stationary_points_bot)))
+    dist_bot = np.trunc(dist_bot)
+    cv2.putText(frame, "Bottom Player Distance : " + str(dist_bot)+" m", (50,80), cv2.FONT_HERSHEY_SIMPLEX,0.5,(70,150,255), 1)
+    
+    if len(stationary_points_top)!=0 : 
+        dist_top = 0
+        cv2.circle(rectified_image, stationary_points_top[0], 2, (125, 125, 125), cv2.FILLED)
+        for i in range(1,len(stationary_points_top)):
+            cv2.circle(rectified_image, stationary_points_top[i], 2, (125, 125, 125), cv2.FILLED)
+            cv2.line(rectified_image, stationary_points_top[i-1],stationary_points_top[i], (125,125,125), 3)
+            dist_top += np.linalg.norm(np.array(stationary_points_top[i]) - np.array(stationary_points_top[i-1]))/ratiopxpermtr
+    
+    dist_top= np.trunc(dist_top)
+    cv2.putText(frame, "Top Player Distance : " + str(dist_top)+" m", (50,110), cv2.FONT_HERSHEY_SIMPLEX,0.5,(70,150,255), 1)
 
     combined_image = cv2.hconcat([frame, rectified_image])
     cv2.imshow('Combined Images', combined_image)
@@ -1203,7 +1253,7 @@ cv2.destroyAllWindows()
 #                         60, (image.shape[1] + rectified_image.shape[1], 720))
 #
 #print("\nInterpolation Completed. Drawing...\n")
-
+#
 #j = 0
 #while cv2.waitKey(1) < 0:
 #    
@@ -1295,4 +1345,4 @@ cv2.destroyAllWindows()
 #cap.release()
 #result.release()
 #cv2.destroyAllWindows()
-print("The video was successfully processed")
+#print("The video was successfully processed")
