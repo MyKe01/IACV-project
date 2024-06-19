@@ -1105,7 +1105,6 @@ while cv2.waitKey(1) < 0:
     if counter%5 == 0 : 
         computeMoving = True
     else : 
-        print(str(i))
         computeMoving = False
 
     counter +=1
@@ -1206,7 +1205,6 @@ while cv2.waitKey(1) < 0:
             cv2.circle(rectified_image, stationary_points_bot[i], 2, (125, 125, 125), cv2.FILLED)
             cv2.line(rectified_image, stationary_points_bot[i-1],stationary_points_bot[i], (125,125,125), 3)
             dist_bot += np.linalg.norm(np.array(stationary_points_bot[i]) - np.array(stationary_points_bot[i-1]))/ratiopxpermtr
-    print("LEN BOT " + str(len(stationary_points_bot)))
     dist_bot = np.trunc(dist_bot)
     cv2.putText(frame, "Bottom Player Distance : " + str(dist_bot)+" m", (50,80), cv2.FONT_HERSHEY_SIMPLEX,0.5,(70,150,255), 1)
     
