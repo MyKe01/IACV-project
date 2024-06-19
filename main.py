@@ -1131,9 +1131,6 @@ while cv2.waitKey(1) < 0:
     th_B = threading.Thread(target=computePoseAndAnkles, args=(cropped_frame_top, stationary_points_top, mpPose_B, pose_B, mpDraw_B, homography_matrix, prev_PrightB_image, prev_PleftB_image, threshold_moving, min_x_top_pl,  min_y_top_pl, rectified_image, rightwrist_stack_top, leftwrist_stack_top, height_top_buffer))
     th_C = threading.Thread(target=processBallTrajectory, args=(ball_detector, frame, positions_stack))
          
-    #stationary_points_bot = stationary_points_bot[::60]
-    #stationary_points_top = stationary_points_top[::60]
-
     th_A.start()
     th_B.start()
     th_C.start()
@@ -1185,8 +1182,8 @@ while cv2.waitKey(1) < 0:
     print(f"FRAME {i}: {ballpos}; - {percent:.1f}%")
 
     # Putting ball position into perspective
-    real_ball_pos = cv2.perspectiveTransform(ballpos, homography_matrix)
-    ball_positions_real.append(real_ball_pos)
+    #real_ball_pos = cv2.perspectiveTransform(ballpos, homography_matrix)
+    #ball_positions_real.append(real_ball_pos)
 
     frame_str = f"Frame: {i}"
     cv2.putText(frame, str(frame_str), (50,50), cv2.FONT_HERSHEY_SIMPLEX,1,(255,0,255), 3)
