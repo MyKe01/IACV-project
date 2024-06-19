@@ -1130,19 +1130,19 @@ while cv2.waitKey(1) < 0:
     #creating two threads to improve performances for the detection of the pose
     th_A = threading.Thread(target=computePoseAndAnkles, args=(cropped_frame_bot, stationary_points_bot, mpPose_A, pose_A, mpDraw_A, homography_matrix, prev_PrightA_image, prev_PleftA_image, threshold_moving, min_x_bot_pl, min_y_bot_pl, rectified_image, rightwrist_stack_bot, leftwrist_stack_bot, height_bot_buffer))
     th_B = threading.Thread(target=computePoseAndAnkles, args=(cropped_frame_top, stationary_points_top, mpPose_B, pose_B, mpDraw_B, homography_matrix, prev_PrightB_image, prev_PleftB_image, threshold_moving, min_x_top_pl,  min_y_top_pl, rectified_image, rightwrist_stack_top, leftwrist_stack_top, height_top_buffer))
-    #th_C = threading.Thread(target=processBallTrajectory, args=(ball_detector, frame, positions_stack))
+    th_C = threading.Thread(target=processBallTrajectory, args=(ball_detector, frame, positions_stack))
          
     #stationary_points_bot = stationary_points_bot[::60]
     #stationary_points_top = stationary_points_top[::60]
 
     th_A.start()
     th_B.start()
-    #th_C.start()
+    th_C.start()
     th_A.join()
     th_B.join()
-    #th_C.join()
+    th_C.join()
 
-    #ballpos = positions_stack.pop()
+    ballpos = positions_stack.pop()
 
     rightwrist_top = rightwrist_stack_top.pop()
     leftwrist_top = leftwrist_stack_top.pop()
@@ -1171,23 +1171,23 @@ while cv2.waitKey(1) < 0:
     frame[min_y_bot_pl:max_y_bot_pl, min_x_bot_pl:max_x_bot_pl] = cropped_frame_bot
     frame[min_y_top_pl:max_y_top_pl, min_x_top_pl:max_x_top_pl] = cropped_frame_top
 
-    #ballpos_real = (0,0)
-    #if ballpos != (0,0):
-    #    cv2.circle(frame, ballpos, 5, (0, 255, 0), cv2.FILLED)
-    #    #ballpos_array = np.array([[ballpos[0], ballpos[1]]], dtype=np.float32)
-    #    #ballpos_array = np.reshape(ballpos_array, (1,1,2))
-    #    #transformedpos = map_2d_to_3d(P, np.array([ballpos]))
-    #    #ballpos_real = (round(transformedpos[0][0]), round(transformedpos[0][1]))
-    #    #cv2.circle(rectified_image, ballpos_real , 5, (255, 255, 0), cv2.FILLED)
-    #ball_positions.append(ballpos)
-    ##ball_positions_real.append(ballpos_real)
+    ballpos_real = (0,0)
+    if ballpos != (0,0):
+        cv2.circle(frame, ballpos, 5, (0, 255, 0), cv2.FILLED)
+        #ballpos_array = np.array([[ballpos[0], ballpos[1]]], dtype=np.float32)
+        #ballpos_array = np.reshape(ballpos_array, (1,1,2))
+        #transformedpos = map_2d_to_3d(P, np.array([ballpos]))
+        #ballpos_real = (round(transformedpos[0][0]), round(transformedpos[0][1]))
+        #cv2.circle(rectified_image, ballpos_real , 5, (255, 255, 0), cv2.FILLED)
+    ball_positions.append(ballpos)
+    #ball_positions_real.append(ballpos_real)
 
     percent = i/total_frames*100
-    #print(f"FRAME {i}: {ballpos}; - {percent:.1f}%")
+    print(f"FRAME {i}: {ballpos}; - {percent:.1f}%")
 
     # Putting ball position into perspective
-    #real_ball_pos = cv2.perspectiveTransform(ballpos, homography_matrix)
-    #ball_positions_real.append(real_ball_pos)
+    real_ball_pos = cv2.perspectiveTransform(ballpos, homography_matrix)
+    ball_positions_real.append(real_ball_pos)
 
     frame_str = f"Frame: {i}"
     cv2.putText(frame, str(frame_str), (50,50), cv2.FONT_HERSHEY_SIMPLEX,1,(255,0,255), 3)
@@ -1232,117 +1232,117 @@ cap.release()
 result.release()
 cv2.destroyAllWindows()
 
-#print("DETECTED POSITIONS")
-#for l in ball_positions:
-#    print(l)
+print("DETECTED POSITIONS")
+for l in ball_positions:
+    print(l)
 
-#if i < total_frames:
-#    print("Execution stopped by user")
-#    sys.exit()
+if i < total_frames:
+    print("Execution stopped by user")
+    sys.exit()
 
-#interpolated_samples = interpolate_missing_values(ball_positions)
-#print("\nInterpolation:\n")
-#for r in interpolated_samples:
-#    print(f"FRAME: {r}")
-#    print(f"--> {ball_positions[r]}")
-#
-#cap = cv2.VideoCapture("raw.mp4")
-#
-#result = cv2.VideoWriter('processed.mp4',
-#                         cv2.VideoWriter_fourcc(*'mp4v'),
-#                         60, (image.shape[1] + rectified_image.shape[1], 720))
-#
-#print("\nInterpolation Completed. Drawing...\n")
-#
-#j = 0
-#while cv2.waitKey(1) < 0:
-#    
-#    hasFrame, frame = cap.read()
-#    if not hasFrame:
-#        break
-#    
-#    percent = j/i*100
-#    print(f"{percent:.1f}%")
-#
-#    #if j in interpolated_samples:
-#
-#        #Regular Pitch View: adding of interpolated ball position
-#    #    original_frame_extr = frame[0:res_height,0:res_width]
-#    #    cv2.circle(original_frame_extr, ball_positions[j], 7, (0,0,255), cv2.FILLED) 
-#
-#        #Top Pitch View: adding of interpolated ball position
-#    #    rectified_image_extr = frame[0:res_height, res_width+1:frame.shape[1]]
-#    #    interpolatedballpos = ball_positions[j]
-#        #ballpos_array = np.array([[interpolatedballpos[0], interpolatedballpos[1]]], dtype=np.float32)
-#        #ballpos_array = np.reshape(ballpos_array, (1,1,2))
-#        #transformedpos = map_2d_to_3d(P, np.array([interpolatedballpos]))
-#        #ballpos_real = (round(transformedpos[0][0]), round(transformedpos[0][1]))
-#        #cv2.circle(rectified_image_extr, ballpos_real , 5, (255, 255, 0), cv2.FILLED)
-#
-#        #height = max(frame.shape[0], rectified_image_extr.shape[0])
-#        #original_frame_extr = cv2.resize(original_frame_extr, (int(original_frame_extr.shape[1] * height / original_frame_extr.shape[0]), height))
-#        #rectified_image = cv2.resize(rectified_image_extr, (int(rectified_image_extr.shape[1] * height / rectified_image_extr.shape[0]), height))
-#    #    frame = cv2.hconcat([original_frame_extr, rectified_image_extr])
-#        #cv2.imshow(f'Frame Interpolated: {j}', frame)
-#    
-#    if j in interpolated_samples:
-#        cv2.circle(frame, ball_positions[j], 7, (0, 0, 255), cv2.FILLED)   
-#        #cv2.imshow(f'Frame Interpolated: {j}', frame)
-#
-#    result.write(frame) 
-#    j +=1
-#cap.release()
-#result.release()
-#cv2.destroyAllWindows()
-#print("The video was successfully processed")
-#
-#
-#cap = cv2.VideoCapture("processed.mp4")
-#
-#
-#
-#result = cv2.VideoWriter('processed_winfo.mp4',
-#                         cv2.VideoWriter_fourcc(*'mp4v'),
-#                         60, (image.shape[1] + rectified_image.shape[1], 720))
-#
-#
-#racket_hits, velocity = detect_racket_hits(ball_positions, rightwrist_positions_top, leftwrist_positions_top, rightwrist_positions_bot, leftwrist_positions_bot, height_values_top, height_values_bot)
-#print("Detected racket hits:", racket_hits)
-#j = 0
-#hits = 0
-#while cv2.waitKey(1) < 0:
-#    
-#    hasFrame, frame = cap.read()
-#    if not hasFrame:
-#        break
-#    
-#    percent = j/i*100
-#    print(f"{percent:.1f}%")
-#
-#    if j > 5:
-#        ypos = f"Y(curr): {ball_positions[j][1]}"
-#        ypos1 = f"Y(-1): {ball_positions[j-1][1]}"
-#        ypos2 = f"Y(-2): {ball_positions[j-2][1]}"
-#        ypos3 = f"Y(-3): {ball_positions[j-3][1]}"
-#        ypos4 = f"Y(-4): {ball_positions[j-4][1]}"
-#        cv2.putText(frame, ypos, (50, 350), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255,255,255), 2)
-#        cv2.putText(frame, ypos1, (50, 370), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255,255,255), 2)
-#        cv2.putText(frame, ypos2, (50, 390), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255,255,255), 2)
-#        cv2.putText(frame, ypos3, (50, 410), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255,255,255), 2)
-#        cv2.putText(frame, ypos4, (50, 430), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255,255,255), 2)
-#
-#    vel =  f"Y speed: {velocity[j]:.2f}"
-#    cv2.putText(frame, vel, (50, 150), cv2.FONT_HERSHEY_SIMPLEX, 1, (0,255,255), 2)
-#    
-#    if j in racket_hits:
-#        hits += 1
-#    text_rackethits = f"Racket Hits: {hits}"
-#    cv2.putText(frame, text_rackethits, (50, 250), cv2.FONT_HERSHEY_SIMPLEX, 1, (0,255,0), 2)   
-#    
-#    result.write(frame)
-#    j +=1
-#
-#cap.release()
-#result.release()
-#cv2.destroyAllWindows()
-#print("The video was successfully processed")
+interpolated_samples = interpolate_missing_values(ball_positions)
+print("\nInterpolation:\n")
+for r in interpolated_samples:
+    print(f"FRAME: {r}")
+    print(f"--> {ball_positions[r]}")
+
+cap = cv2.VideoCapture("raw.mp4")
+
+result = cv2.VideoWriter('processed.mp4',
+                         cv2.VideoWriter_fourcc(*'mp4v'),
+                         60, (image.shape[1] + rectified_image.shape[1], 720))
+
+print("\nInterpolation Completed. Drawing...\n")
+
+j = 0
+while cv2.waitKey(1) < 0:
+    
+    hasFrame, frame = cap.read()
+    if not hasFrame:
+        break
+    
+    percent = j/i*100
+    print(f"{percent:.1f}%")
+
+    #if j in interpolated_samples:
+
+        #Regular Pitch View: adding of interpolated ball position
+    #    original_frame_extr = frame[0:res_height,0:res_width]
+    #    cv2.circle(original_frame_extr, ball_positions[j], 7, (0,0,255), cv2.FILLED) 
+
+        #Top Pitch View: adding of interpolated ball position
+    #    rectified_image_extr = frame[0:res_height, res_width+1:frame.shape[1]]
+    #    interpolatedballpos = ball_positions[j]
+        #ballpos_array = np.array([[interpolatedballpos[0], interpolatedballpos[1]]], dtype=np.float32)
+        #ballpos_array = np.reshape(ballpos_array, (1,1,2))
+        #transformedpos = map_2d_to_3d(P, np.array([interpolatedballpos]))
+        #ballpos_real = (round(transformedpos[0][0]), round(transformedpos[0][1]))
+        #cv2.circle(rectified_image_extr, ballpos_real , 5, (255, 255, 0), cv2.FILLED)
+
+        #height = max(frame.shape[0], rectified_image_extr.shape[0])
+        #original_frame_extr = cv2.resize(original_frame_extr, (int(original_frame_extr.shape[1] * height / original_frame_extr.shape[0]), height))
+        #rectified_image = cv2.resize(rectified_image_extr, (int(rectified_image_extr.shape[1] * height / rectified_image_extr.shape[0]), height))
+    #    frame = cv2.hconcat([original_frame_extr, rectified_image_extr])
+        #cv2.imshow(f'Frame Interpolated: {j}', frame)
+    
+    if j in interpolated_samples:
+        cv2.circle(frame, ball_positions[j], 7, (0, 0, 255), cv2.FILLED)   
+        #cv2.imshow(f'Frame Interpolated: {j}', frame)
+
+    result.write(frame) 
+    j +=1
+cap.release()
+result.release()
+cv2.destroyAllWindows()
+print("The video was successfully processed")
+
+
+cap = cv2.VideoCapture("processed.mp4")
+
+
+
+result = cv2.VideoWriter('processed_winfo.mp4',
+                         cv2.VideoWriter_fourcc(*'mp4v'),
+                         60, (image.shape[1] + rectified_image.shape[1], 720))
+
+
+racket_hits, velocity = detect_racket_hits(ball_positions, rightwrist_positions_top, leftwrist_positions_top, rightwrist_positions_bot, leftwrist_positions_bot, height_values_top, height_values_bot)
+print("Detected racket hits:", racket_hits)
+j = 0
+hits = 0
+while cv2.waitKey(1) < 0:
+    
+    hasFrame, frame = cap.read()
+    if not hasFrame:
+        break
+    
+    percent = j/i*100
+    print(f"{percent:.1f}%")
+
+    if j > 5:
+        ypos = f"Y(curr): {ball_positions[j][1]}"
+        ypos1 = f"Y(-1): {ball_positions[j-1][1]}"
+        ypos2 = f"Y(-2): {ball_positions[j-2][1]}"
+        ypos3 = f"Y(-3): {ball_positions[j-3][1]}"
+        ypos4 = f"Y(-4): {ball_positions[j-4][1]}"
+        cv2.putText(frame, ypos, (50, 350), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255,255,255), 2)
+        cv2.putText(frame, ypos1, (50, 370), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255,255,255), 2)
+        cv2.putText(frame, ypos2, (50, 390), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255,255,255), 2)
+        cv2.putText(frame, ypos3, (50, 410), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255,255,255), 2)
+        cv2.putText(frame, ypos4, (50, 430), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255,255,255), 2)
+
+    vel =  f"Y speed: {velocity[j]:.2f}"
+    cv2.putText(frame, vel, (50, 150), cv2.FONT_HERSHEY_SIMPLEX, 1, (0,255,255), 2)
+    
+    if j in racket_hits:
+        hits += 1
+    text_rackethits = f"Racket Hits: {hits}"
+    cv2.putText(frame, text_rackethits, (50, 250), cv2.FONT_HERSHEY_SIMPLEX, 1, (0,255,0), 2)   
+    
+    result.write(frame)
+    j +=1
+
+cap.release()
+result.release()
+cv2.destroyAllWindows()
+print("The video was successfully processed")
