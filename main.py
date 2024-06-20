@@ -36,13 +36,14 @@ import mediapipe as mp
 import time
 from TRACE.BallDetection import BallDetector
 from TRACE.BallMapping import euclideanDistance, withinCircle
+
 from moviepy.editor import VideoFileClip
 from scipy.optimize import minimize
 
 from player_detection.playerDetection import PlayersDetections
-##################################################################
+###################################################################
 
-def computePoseAndAnkles(cropped_frame, static_centers_queue, mpPose, pose, mpDraw, hom_matrix, prev_right_ankle, prev_left_ankle, threshold, x_offset, y_offset, rect_img, rightwristbuffer, leftwristbuffer, heightbuffer):
+def computePoseAndAnkles(cropped_frame, static_centers_queue, mpPose, pose, mpDraw, hom_matrix, prev_right_ankle, prev_left_ankle, threshold, x_offset, y_offset, rect_img, rightwristbuffer, leftwristbuffer, heightbuffer, proximitybuffer):
 
     imgRGB = cv2.cvtColor(cropped_frame, cv2.COLOR_BGR2RGB)
     results = pose.process(imgRGB)
@@ -157,6 +158,14 @@ def computePoseAndAnkles(cropped_frame, static_centers_queue, mpPose, pose, mpDr
     # Collecting static positions
     if right_ankle != (0,0) and left_ankle != (0,0) and left_foot_moved != True and right_foot_moved != True : 
         static_centers_queue.append(center_real)
+    if right_ankle != (0,0) and left_ankle != (0,0):
+        center_point = (
+        (right_ankle[0] + left_ankle[0]) / 2,
+        (right_ankle[1] + left_ankle[1]) / 2
+        )
+        proximitybuffer.append(center_point)
+    else: proximitybuffer.append((0,0))
+
     #displaying live positions of the player
     center_real = (round(center_real[0]), round(center_real[1]))
     cv2.circle(rect_img, center_real , 5, (255, 255, 0), cv2.FILLED)
@@ -480,11 +489,12 @@ def calculate_homography(image_points, field_points, field_length, field_width):
 
     return homography
 
-def get_total_frames(video_path):
+def get_clip_params(video_path):
     clip = VideoFileClip(video_path)
     total_frames = clip.reader.nframes
+    video_fps = clip.fps
     clip.close()
-    return total_frames
+    return total_frames, video_fps
 
 def interpolate_missing_values(coords):
     jump = 5
@@ -643,7 +653,7 @@ def interpolate_missing_values(coords):
     #print(hits)
     return hits, velocities
 
-def detect_racket_hits(ball_positions, rightwrist_positions_top, leftwrist_positions_top, rightwrist_positions_bot, leftwrist_positions_bot, height_values_top, height_values_bot):
+########def detect_racket_hits(ball_positions, rightwrist_positions_top, leftwrist_positions_top, rightwrist_positions_bot, leftwrist_positions_bot, height_values_top, height_values_bot):
     hits = []
     window = 49
     poly_order = 2
@@ -664,17 +674,18 @@ def detect_racket_hits(ball_positions, rightwrist_positions_top, leftwrist_posit
         #if (velocities[i] >= 0 and velocities[i-1] < 0) or (velocities[i] < 0 and velocities[i-1] >= 0):
         #   if velocities[i+1] >= 0 and velocities[i-2] < 0 or velocities[i+1] < 0 and velocities[i-2] >= 0:
         #        hits.append(i)
-
     sign_changes = np.where(np.diff(np.sign(velocities)))[0]
 
+    window = 20
+    default_minimum_radius = 100 #pixel
+    radius_multiplier = 10
+    radiuses = [height_values_top[j]*radius_multiplier, height_values_bot[j]*radius_multiplier] #We consider as detection area the height of the player
     for i in sign_changes:
         print("Detected racket hit: ")
         print(i)
         append_flag = False
         min_player_distance = float('inf')
         frame_ball_closest_to_player = i
-        default_minimum_radius = 100 # pixel
-        window = 20
 
         for j in range(max(0, i-window), min(len(ball_positions_array), i+window)):
             if j >= len(ball_positions_array):  # Assicurarsi di non superare i limiti dell'array
@@ -691,8 +702,8 @@ def detect_racket_hits(ball_positions, rightwrist_positions_top, leftwrist_posit
             dist_right_bot = np.linalg.norm(ball_pos - np.array(rightwrist_positions_bot[j]))
             dist_left_bot = np.linalg.norm(ball_pos - np.array(leftwrist_positions_bot[j]))
 
-            if (dist_right_top < max(height_values_top[j]*10, default_minimum_radius) or dist_left_top < max(height_values_top[j]*10, default_minimum_radius) or
-                dist_right_bot < max(height_values_bot[j]*10, default_minimum_radius) or dist_left_bot < max(height_values_bot[j]*10, default_minimum_radius)):
+            if (dist_right_top < max(radiuses[0], default_minimum_radius) or dist_left_top < max(radiuses[0], default_minimum_radius) or
+                dist_right_bot < max(radiuses[1], default_minimum_radius) or dist_left_bot < max(radiuses[1], default_minimum_radius)):
                 append_flag = True
                 distances_min = min(dist_right_top, dist_left_top, dist_right_bot, dist_left_bot)
                 if distances_min < min_player_distance:
@@ -707,6 +718,128 @@ def detect_racket_hits(ball_positions, rightwrist_positions_top, leftwrist_posit
     #print("DETECTED HITS")
     #print(hits)
     return hits, velocities
+
+def detect_racket_hits(ball_positions, rightwrist_positions_top, leftwrist_positions_top, rightwrist_positions_bot, leftwrist_positions_bot, height_values_top, height_values_bot):
+    hits = []
+    window = 49
+    poly_order = 2
+
+    ball_positions_array = np.array(ball_positions)
+    y_positions = ball_positions_array[:, 1]
+    smoothed_y_positions = savgol_filter(y_positions, window, poly_order)
+
+    velocities = savgol_filter(y_positions, window, poly_order, deriv=1)  # Calcolo della derivata rispetto all'asse verticale
+    accelerations = np.gradient(velocities)
+
+    plotgraph(smoothed_y_positions, "Frame", "y Position", "pC.jpg")
+    plotgraph(velocities, "Frame", "y Velocity", "vC.jpg")
+    plotgraph(accelerations, "Frame", "y Accelerations", "aC.jpg")
+
+    sign_changes = np.where(np.diff(np.sign(velocities)))[0]
+
+    window = 20
+    default_minimum_radius = 100 #pixel
+    radius_multiplier = 10
+    
+    for i in sign_changes:
+        append_flag = False
+        min_player_distance = float('inf')
+        max_wrist_velocity_sum = 0
+        frame_ball_closest_to_player = i
+
+        for j in range(max(0, i - window), min(len(ball_positions_array), i + window)):
+            radiuses = [height_values_top[j] * radius_multiplier, height_values_bot[j] * radius_multiplier]  # We consider as detection area the height of the player
+            if j >= len(ball_positions_array):  # Assicurarsi di non superare i limiti dell'array
+                break
+            ball_pos = ball_positions_array[j]
+            if np.array_equal(ball_pos, np.array([0, 0])):
+                break
+
+            # Distanza dai polsi del giocatore in alto
+            dist_right_top = np.linalg.norm(ball_pos - np.array(rightwrist_positions_top[j]))
+            dist_left_top = np.linalg.norm(ball_pos - np.array(leftwrist_positions_top[j]))
+
+            # Distanza dai polsi del giocatore in basso
+            dist_right_bot = np.linalg.norm(ball_pos - np.array(rightwrist_positions_bot[j]))
+            dist_left_bot = np.linalg.norm(ball_pos - np.array(leftwrist_positions_bot[j]))
+
+            if (dist_right_top < max(radiuses[0], default_minimum_radius) or dist_left_top < max(radiuses[0], default_minimum_radius) or
+                dist_right_bot < max(radiuses[1], default_minimum_radius) or dist_left_bot < max(radiuses[1], default_minimum_radius)):
+                
+                # Calcolo delle velocità dei polsi
+                if j > 0:
+                    wrist_velocity_right_top = np.linalg.norm(np.array(rightwrist_positions_top[j]) - np.array(rightwrist_positions_top[j - 1]))
+                    wrist_velocity_left_top = np.linalg.norm(np.array(leftwrist_positions_top[j]) - np.array(leftwrist_positions_top[j - 1]))
+                    wrist_velocity_right_bot = np.linalg.norm(np.array(rightwrist_positions_bot[j]) - np.array(rightwrist_positions_bot[j - 1]))
+                    wrist_velocity_left_bot = np.linalg.norm(np.array(leftwrist_positions_bot[j]) - np.array(leftwrist_positions_bot[j - 1]))
+                    
+                    wrist_velocity_sum = wrist_velocity_right_top + wrist_velocity_left_top + wrist_velocity_right_bot + wrist_velocity_left_bot
+
+                    if wrist_velocity_sum > max_wrist_velocity_sum:
+                        max_wrist_velocity_sum = wrist_velocity_sum
+                        frame_ball_closest_to_player = j
+                
+                append_flag = True
+                distances_min = min(dist_right_top, dist_left_top, dist_right_bot, dist_left_bot)
+                if distances_min < min_player_distance:
+                    min_player_distance = distances_min
+                    frame_ball_closest_to_player = j
+
+        if append_flag:
+            hits.append(frame_ball_closest_to_player)
+
+    return hits, velocities
+
+def compute_avg_ballspeed(racket_hits, ball_positions, centers_top, centers_bot, frame_rate=30):
+    speeds = []
+
+    for k in range(len(racket_hits) - 1):
+        hit_start = racket_hits[k]
+        hit_end = racket_hits[k + 1]
+
+        # Trova il centro più vicino alla palla al momento del primo colpo
+        ball_pos_start = np.array(ball_positions[hit_start])
+        center_top_start = np.array(centers_top[hit_start])
+        center_bot_start = np.array(centers_bot[hit_start])
+        
+        dist_top_start = np.linalg.norm(ball_pos_start - center_top_start)
+        dist_bot_start = np.linalg.norm(ball_pos_start - center_bot_start)
+        
+        print(f"Iteration {k}")
+        print(f"hit_start: {hit_start}, hit_end: {hit_end}")
+        print(f"ball_pos_start: {ball_pos_start}")
+        print(f"center_top_start: {center_top_start}, center_bot_start: {center_bot_start}")
+        print(f"dist_top_start: {dist_top_start}, dist_bot_start: {dist_bot_start}")
+        
+        if dist_top_start < dist_bot_start:
+            center_start = center_top_start
+            center_end = centers_bot[hit_end]
+            print("Using center_top_start and centers_bot for calculation.")
+        else:
+            center_start = center_bot_start
+            center_end = centers_top[hit_end]
+            print("Using center_bot_start and centers_top for calculation.")
+        
+        # Calcola la distanza in pixel tra i due centri
+        distance = np.linalg.norm(center_start - center_end)
+        print(f"center_start: {center_start}, center_end: {center_end}")
+        print(f"Distance: {distance}")
+        
+        # Calcola la differenza di tempo in secondi
+        time_difference = (hit_end - hit_start) / frame_rate
+        print(f"time_difference: {time_difference}")
+        
+        # Calcola la velocità media
+        if time_difference != 0:
+            speed = distance / time_difference
+        else:
+            speed = 0
+        print(f"Speed: {speed}\n")
+        
+        speeds.append(speed)
+
+    return speeds
+
 
 def plotgraph(values, xlabel, ylabel, filename):
     plt.plot(values, color='tab:blue', marker='.')
@@ -957,6 +1090,8 @@ leftwrist_stack_bot = []
 realposition_buffer = []
 height_top_buffer = []
 height_bot_buffer = []
+proximity_stack_top = []
+proximity_stack_bot = []
 
 # Arrays for positions wrt frames
 ball_positions = [] #array of the trajectory in the image
@@ -967,6 +1102,8 @@ rightwrist_positions_bot = []
 leftwrist_positions_bot = []
 height_values_top = []
 height_values_bot = []
+center_positions_top = []
+center_positions_bot = []
 
 prevpos = (0,0)
 lastvalidpos = (0,0)
@@ -991,8 +1128,9 @@ prev_PrightB_image =[0,0]
 ############## Task 3 ###################
 
 # Loading of the clip to analyze
-video_path = "resources/tennis2full.mp4"
-total_frames = get_total_frames(video_path)
+#video_path = "resources/tennis2full.mp4"
+video_path = "resources/tennis2.mp4"
+total_frames, vfps = get_clip_params(video_path)
 cap = cv2.VideoCapture(video_path)
 
 
@@ -1134,16 +1272,21 @@ while cv2.waitKey(1) < 0:
     th_A.start()
     th_B.start()
     th_C.start()
+    th_C.start()
     th_A.join()
     th_B.join()
     th_C.join()
+    th_C.join()
 
+    ballpos = positions_stack.pop()
     ballpos = positions_stack.pop()
 
     rightwrist_top = rightwrist_stack_top.pop()
     leftwrist_top = leftwrist_stack_top.pop()
     rightwrist_bot = rightwrist_stack_bot.pop()
     leftwrist_bot = leftwrist_stack_bot.pop()
+    center_bot = proximity_stack_bot.pop()
+    center_top = proximity_stack_top.pop()
 
     height_top = height_top_buffer.pop()
     height_bot = height_bot_buffer.pop()
@@ -1158,10 +1301,14 @@ while cv2.waitKey(1) < 0:
     leftwrist_positions_bot.append(leftwrist_bot)
     height_values_top.append(height_top)
     height_values_bot.append(height_bot)
+    center_positions_top.append(center_top)
+    center_positions_bot.append(center_bot)
 
     pTime = time.time()
+    diff_time = (pTime-cTime)*1000
+    ms_string = f"Processing period = {diff_time:.2f} ms"
+    print(ms_string)
 
-    #fps = 1/(cTime-pTime)
     fps = 1/(pTime-cTime)
     
     frame[min_y_bot_pl:max_y_bot_pl, min_x_bot_pl:max_x_bot_pl] = cropped_frame_bot
@@ -1170,16 +1317,21 @@ while cv2.waitKey(1) < 0:
     ballpos_real = (0,0)
     if ballpos != (0,0):
         cv2.circle(frame, ballpos, 5, (0, 255, 0), cv2.FILLED)
-        #ballpos_array = np.array([[ballpos[0], ballpos[1]]], dtype=np.float32)
-        #ballpos_array = np.reshape(ballpos_array, (1,1,2))
-        #transformedpos = map_2d_to_3d(P, np.array([ballpos]))
-        #ballpos_real = (round(transformedpos[0][0]), round(transformedpos[0][1]))
-        #cv2.circle(rectified_image, ballpos_real , 5, (255, 255, 0), cv2.FILLED)
+       
+       #ballpos_array = np.array([[ballpos[0], ballpos[1]]], dtype=np.float32)
+   #   #ballpos_array = np.reshape(ballpos_array, (1,1,2))
+        #transformedpos = mnc.convert_bounding_boxes_to_mini_court_coordinates(ball_coords=np.array(ballpos), homography_mat=homography_matrix, adjust_height=int((height_top+height_bot)/2))
+   #   ballpos_real = (round(transformedpos[0][0]), round(transformedpos[0][1]))
+   #   #cv2.circle(rectified_image, ballpos_real , 5, (255, 255, 0), cv2.FILLED)
+        #if transformedpos is not None:
+        # Disegna il cerchio sulla posizione trasformata nell'immagine rettificata
+        #    transformed_coords = (round(transformedpos[0]), round(transformedpos[1]))
+        #    cv2.circle(rectified_image, transformed_coords, 5, (255, 255, 0), cv2.FILLED)
     ball_positions.append(ballpos)
     #ball_positions_real.append(ballpos_real)
 
     percent = i/total_frames*100
-    print(f"FRAME {i}: {ballpos}; - {percent:.1f}%")
+    print(f"FRAME {i}: {ballpos}; - {percent:.1f}%") #Live Detection Telemetry
 
     # Putting ball position into perspective
     #real_ball_pos = cv2.perspectiveTransform(ballpos, homography_matrix)
@@ -1259,27 +1411,27 @@ while cv2.waitKey(1) < 0:
     percent = j/i*100
     print(f"{percent:.1f}%")
 
-    #if j in interpolated_samples:
-
-        #Regular Pitch View: adding of interpolated ball position
-    #    original_frame_extr = frame[0:res_height,0:res_width]
-    #    cv2.circle(original_frame_extr, ball_positions[j], 7, (0,0,255), cv2.FILLED) 
-
-        #Top Pitch View: adding of interpolated ball position
-    #    rectified_image_extr = frame[0:res_height, res_width+1:frame.shape[1]]
-    #    interpolatedballpos = ball_positions[j]
-        #ballpos_array = np.array([[interpolatedballpos[0], interpolatedballpos[1]]], dtype=np.float32)
-        #ballpos_array = np.reshape(ballpos_array, (1,1,2))
-        #transformedpos = map_2d_to_3d(P, np.array([interpolatedballpos]))
-        #ballpos_real = (round(transformedpos[0][0]), round(transformedpos[0][1]))
-        #cv2.circle(rectified_image_extr, ballpos_real , 5, (255, 255, 0), cv2.FILLED)
-
-        #height = max(frame.shape[0], rectified_image_extr.shape[0])
-        #original_frame_extr = cv2.resize(original_frame_extr, (int(original_frame_extr.shape[1] * height / original_frame_extr.shape[0]), height))
-        #rectified_image = cv2.resize(rectified_image_extr, (int(rectified_image_extr.shape[1] * height / rectified_image_extr.shape[0]), height))
-    #    frame = cv2.hconcat([original_frame_extr, rectified_image_extr])
-        #cv2.imshow(f'Frame Interpolated: {j}', frame)
-    
+#    #if j in interpolated_samples:
+#
+#        #Regular Pitch View: adding of interpolated ball position
+#    #    original_frame_extr = frame[0:res_height,0:res_width]
+#    #    cv2.circle(original_frame_extr, ball_positions[j], 7, (0,0,255), cv2.FILLED) 
+#
+#        #Top Pitch View: adding of interpolated ball position
+#    #    rectified_image_extr = frame[0:res_height, res_width+1:frame.shape[1]]
+#    #    interpolatedballpos = ball_positions[j]
+#        #ballpos_array = np.array([[interpolatedballpos[0], interpolatedballpos[1]]], dtype=np.float32)
+#        #ballpos_array = np.reshape(ballpos_array, (1,1,2))
+#        #transformedpos = map_2d_to_3d(P, np.array([interpolatedballpos]))
+#        #ballpos_real = (round(transformedpos[0][0]), round(transformedpos[0][1]))
+#        #cv2.circle(rectified_image_extr, ballpos_real , 5, (255, 255, 0), cv2.FILLED)
+#
+#        #height = max(frame.shape[0], rectified_image_extr.shape[0])
+#        #original_frame_extr = cv2.resize(original_frame_extr, (int(original_frame_extr.shape[1] * height / original_frame_extr.shape[0]), height))
+#        #rectified_image = cv2.resize(rectified_image_extr, (int(rectified_image_extr.shape[1] * height / rectified_image_extr.shape[0]), height))
+#    #    frame = cv2.hconcat([original_frame_extr, rectified_image_extr])
+#        #cv2.imshow(f'Frame Interpolated: {j}', frame)
+#    
     if j in interpolated_samples:
         cv2.circle(frame, ball_positions[j], 7, (0, 0, 255), cv2.FILLED)   
         #cv2.imshow(f'Frame Interpolated: {j}', frame)
@@ -1294,16 +1446,18 @@ print("The video was successfully processed")
 
 cap = cv2.VideoCapture("processed.mp4")
 
-
-
 result = cv2.VideoWriter('processed_winfo.mp4',
                          cv2.VideoWriter_fourcc(*'mp4v'),
                          60, (image.shape[1] + rectified_image.shape[1], 720))
 
 
 racket_hits, velocity = detect_racket_hits(ball_positions, rightwrist_positions_top, leftwrist_positions_top, rightwrist_positions_bot, leftwrist_positions_bot, height_values_top, height_values_bot)
+avg_ball_velocities = compute_avg_ballspeed(racket_hits, ball_positions, center_positions_top, center_positions_bot, frame_rate=vfps)
+print(avg_ball_velocities)
+
 print("Detected racket hits:", racket_hits)
 j = 0
+avg_speed_index = 0
 hits = 0
 while cv2.waitKey(1) < 0:
     
@@ -1311,31 +1465,34 @@ while cv2.waitKey(1) < 0:
     if not hasFrame:
         break
     
-    percent = j/i*100
+    percent = j / total_frames * 100
     print(f"{percent:.1f}%")
 
-    if j > 5:
-        ypos = f"Y(curr): {ball_positions[j][1]}"
-        ypos1 = f"Y(-1): {ball_positions[j-1][1]}"
-        ypos2 = f"Y(-2): {ball_positions[j-2][1]}"
-        ypos3 = f"Y(-3): {ball_positions[j-3][1]}"
-        ypos4 = f"Y(-4): {ball_positions[j-4][1]}"
-        cv2.putText(frame, ypos, (50, 350), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255,255,255), 2)
-        cv2.putText(frame, ypos1, (50, 370), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255,255,255), 2)
-        cv2.putText(frame, ypos2, (50, 390), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255,255,255), 2)
-        cv2.putText(frame, ypos3, (50, 410), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255,255,255), 2)
-        cv2.putText(frame, ypos4, (50, 430), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255,255,255), 2)
-
-    vel =  f"Y speed: {velocity[j]:.2f}"
-    cv2.putText(frame, vel, (50, 150), cv2.FONT_HERSHEY_SIMPLEX, 1, (0,255,255), 2)
+    vel = f"Y speed: {velocity[j]:.2f}"
+    cv2.putText(frame, vel, (50, 150), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2)
     
     if j in racket_hits:
         hits += 1
+        avg_speed_index += 1  # Incrementa l'indice della velocità media
+
     text_rackethits = f"Racket Hits: {hits}"
-    cv2.putText(frame, text_rackethits, (50, 250), cv2.FONT_HERSHEY_SIMPLEX, 1, (0,255,0), 2)   
+    cv2.putText(frame, text_rackethits, (50, 250), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)   
     
+    if hits > 0 and avg_speed_index < len(avg_ball_velocities):
+        hit_start = racket_hits[hits - 1]
+        hit_end = racket_hits[hits] if hits < len(racket_hits) else total_frames
+        
+        midpoint = (hit_start + hit_end) // 2
+        
+        if j < midpoint:
+            avg_speed_text = "Average ball speed: ..."
+        else:
+            avg_speed_text = f"Average ball speed: {avg_ball_velocities[avg_speed_index - 1]:.2f}"
+        
+        cv2.putText(frame, avg_speed_text, (50, 300), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 0, 0), 2)
+
     result.write(frame)
-    j +=1
+    j += 1
 
 cap.release()
 result.release()
