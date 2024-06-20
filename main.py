@@ -137,7 +137,7 @@ def computePoseAndAnkles(cropped_frame, static_centers_queue, mpPose, pose, mpDr
                 #print(str(Pright_image) + " " + str(prev_right_ankle))
                 cv2.putText(cropped_frame, "(RFoot) Static "  + str(Pright_image[0])+ ", " + str(Pright_image[1]),  (right_ankle[0] +10, right_ankle[1] -20 ), font, font_scale, color, thickness, cv2.LINE_AA)          
     
-    print(str(computeMoving))
+    #print(str(computeMoving))
     if(prev_left_ankle is None or computeMoving) : 
         # Update the values of the field coordinates of the feet from the previous frame  with the current ones
         prev_left_ankle[0] = Pleft_image[0]
@@ -443,7 +443,7 @@ def autoComputeHomography(video, frm, NtopLeftP, NtopRightP, NbottomLeftP, Nbott
             real_NbottomRightP= cv2.perspectiveTransform(NbottomRightP,homography_matrix)
             ratio =  np.linalg.norm(np.array(real_NtopRightP) - np.array(real_NtopLeftP)) /field_width
             ratio2 =  np.linalg.norm(np.array(real_NtopRightP) - np.array(real_NbottomRightP))/field_length
-            print("RATIO px/meter: " + str(ratio)+ " . "  + str(ratio2))
+            #print("RATIO px/meter: " + str(ratio)+ " . "  + str(ratio2))
         
             return homography_matrix, points_array, ratio
 
@@ -790,7 +790,7 @@ def detect_racket_hits(ball_positions, rightwrist_positions_top, leftwrist_posit
 
     return hits, velocities
 
-def compute_avg_ballspeed(racket_hits, ball_positions, centers_top, centers_bot, frame_rate=30):
+def compute_avg_ballspeed(racket_hits, hom_matrix, ball_positions, centers_top, centers_bot, frame_rate=30):
     speeds = []
 
     for k in range(len(racket_hits) - 1):
@@ -812,12 +812,26 @@ def compute_avg_ballspeed(racket_hits, ball_positions, centers_top, centers_bot,
         print(f"dist_top_start: {dist_top_start}, dist_bot_start: {dist_bot_start}")
         
         if dist_top_start < dist_bot_start:
-            center_start = center_top_start
-            center_end = centers_bot[hit_end]
+            center_top_real = (center_top_start[0], center_top_start[1], 0)
+            center_top_real = np.array([[center_top_real[0], center_top_real[1]]], dtype=np.float32)
+            center_top_real = np.reshape(center_top_real, (1,1,2))
+            center_start = cv2.perspectiveTransform(center_top_real, hom_matrix)
+
+            center_bot_real = ((centers_bot[hit_end])[0], (centers_bot[hit_end])[1], 0)
+            center_bot_real = np.array([[center_bot_real[0], center_bot_real[1]]], dtype=np.float32)
+            center_bot_real = np.reshape(center_bot_real, (1,1,2))
+            center_end = cv2.perspectiveTransform(center_bot_real, hom_matrix)
             print("Using center_top_start and centers_bot for calculation.")
         else:
-            center_start = center_bot_start
-            center_end = centers_top[hit_end]
+            center_bot_real = (center_bot_start[0], center_bot_start[1], 0)
+            center_bot_real = np.array([[center_bot_real[0], center_bot_real[1]]], dtype=np.float32)
+            center_bot_real = np.reshape(center_bot_real, (1,1,2))
+            center_start = cv2.perspectiveTransform(center_bot_real, hom_matrix)
+
+            center_tot_real = ((centers_top[hit_end])[0], (centers_top[hit_end])[1], 0)
+            center_tot_real = np.array([[center_tot_real[0], center_tot_real[1]]], dtype=np.float32)
+            center_tot_real = np.reshape(center_tot_real, (1,1,2))
+            center_end = cv2.perspectiveTransform(center_tot_real, hom_matrix)
             print("Using center_bot_start and centers_top for calculation.")
         
         # Calcola la distanza in pixel tra i due centri
@@ -1129,7 +1143,7 @@ prev_PrightB_image =[0,0]
 
 # Loading of the clip to analyze
 #video_path = "resources/tennis2full.mp4"
-video_path = "resources/tennis2.mp4"
+video_path = "resources/tennis2full.mp4"
 total_frames, vfps = get_clip_params(video_path)
 cap = cv2.VideoCapture(video_path)
 
@@ -1137,6 +1151,7 @@ cap = cv2.VideoCapture(video_path)
 # Calculate homography taking the first frame of the video
 #field_points_2D = []
 homography_matrix, field_points_2D, ratiopxpermtr = autoComputeHomography(cap,None, None, None, None, None)
+inv_homography_matrix = np.linalg.inv(homography_matrix)
 
 #since the field width has been scaled by scale_factor, the real ratio has to be multiplied by scale_factor
 ratiopxpermtr = ratiopxpermtr * scale_factor
@@ -1166,7 +1181,7 @@ rectified_image = cv2.warpPerspective(image, homography_matrix, (image.shape[1],
 # Maybe width has to be changed : TODO
 result = cv2.VideoWriter('raw.mp4',
                          cv2.VideoWriter_fourcc(*'mp4v'),
-                         60, (image.shape[1] + rectified_image.shape[1], 720))
+                         vfps, (image.shape[1] + rectified_image.shape[1], 720))
 
 ball_detector = BallDetector('TRACE/TrackNet/Weights.pth', out_channels=2)
 
@@ -1235,17 +1250,17 @@ print("\nBall positions detected:")
 i=0
 computeMoving = False
 threshold_moving = 5
-counter = 0
+#counter = 0
 dist_top = 0
 dist_bot = 0
 while cv2.waitKey(1) < 0:
 
-    if counter%5 == 0 : 
+    if i%5 == 0 : 
         computeMoving = True
     else : 
         computeMoving = False
 
-    counter +=1
+    #counter +=1
     hasFrame, frame = cap.read()
     if not hasFrame:
         # cv2.waitKey()
@@ -1265,20 +1280,19 @@ while cv2.waitKey(1) < 0:
     cropped_frame_bot = frame[min_y_bot_pl:max_y_bot_pl, min_x_bot_pl:max_x_bot_pl].copy()
     
     #creating two threads to improve performances for the detection of the pose
-    th_A = threading.Thread(target=computePoseAndAnkles, args=(cropped_frame_bot, stationary_points_bot, mpPose_A, pose_A, mpDraw_A, homography_matrix, prev_PrightA_image, prev_PleftA_image, threshold_moving, min_x_bot_pl, min_y_bot_pl, rectified_image, rightwrist_stack_bot, leftwrist_stack_bot, height_bot_buffer))
-    th_B = threading.Thread(target=computePoseAndAnkles, args=(cropped_frame_top, stationary_points_top, mpPose_B, pose_B, mpDraw_B, homography_matrix, prev_PrightB_image, prev_PleftB_image, threshold_moving, min_x_top_pl,  min_y_top_pl, rectified_image, rightwrist_stack_top, leftwrist_stack_top, height_top_buffer))
+    th_A = threading.Thread(target=computePoseAndAnkles, args=(cropped_frame_bot, stationary_points_bot, mpPose_A, pose_A, mpDraw_A, homography_matrix, prev_PrightA_image, prev_PleftA_image, threshold_moving, min_x_bot_pl, min_y_bot_pl, rectified_image, rightwrist_stack_bot, leftwrist_stack_bot, height_bot_buffer, proximity_stack_bot))
+    th_B = threading.Thread(target=computePoseAndAnkles, args=(cropped_frame_top, stationary_points_top, mpPose_B, pose_B, mpDraw_B, homography_matrix, prev_PrightB_image, prev_PleftB_image, threshold_moving, min_x_top_pl,  min_y_top_pl, rectified_image, rightwrist_stack_top, leftwrist_stack_top, height_top_buffer, proximity_stack_top))
     th_C = threading.Thread(target=processBallTrajectory, args=(ball_detector, frame, positions_stack))
          
     th_A.start()
     th_B.start()
     th_C.start()
-    th_C.start()
+    
     th_A.join()
     th_B.join()
     th_C.join()
-    th_C.join()
+    
 
-    ballpos = positions_stack.pop()
     ballpos = positions_stack.pop()
 
     rightwrist_top = rightwrist_stack_top.pop()
@@ -1287,6 +1301,8 @@ while cv2.waitKey(1) < 0:
     leftwrist_bot = leftwrist_stack_bot.pop()
     center_bot = proximity_stack_bot.pop()
     center_top = proximity_stack_top.pop()
+    #stationary_points_bot.append(center_bot)
+    #stationary_points_top.append(center_top)
 
     height_top = height_top_buffer.pop()
     height_bot = height_bot_buffer.pop()
@@ -1350,20 +1366,20 @@ while cv2.waitKey(1) < 0:
     if len(stationary_points_bot)!=0 : 
         dist_bot = 0
         cv2.circle(rectified_image, stationary_points_bot[0], 2, (125, 125, 125), cv2.FILLED)
-        for i in range(1,len(stationary_points_bot)):
-            cv2.circle(rectified_image, stationary_points_bot[i], 2, (125, 125, 125), cv2.FILLED)
-            cv2.line(rectified_image, stationary_points_bot[i-1],stationary_points_bot[i], (125,125,125), 3)
-            dist_bot += np.linalg.norm(np.array(stationary_points_bot[i]) - np.array(stationary_points_bot[i-1]))/ratiopxpermtr
+        for z in range(1,len(stationary_points_bot)):
+            cv2.circle(rectified_image, stationary_points_bot[z], 2, (125, 125, 125), cv2.FILLED)
+            cv2.line(rectified_image, stationary_points_bot[z-1],stationary_points_bot[z], (125,125,125), 3)
+            dist_bot += np.linalg.norm(np.array(stationary_points_bot[z]) - np.array(stationary_points_bot[z-1]))/ratiopxpermtr
     dist_bot = np.trunc(dist_bot)
     cv2.putText(frame, "Bottom Player Distance : " + str(dist_bot)+" m", (50,80), cv2.FONT_HERSHEY_SIMPLEX,0.5,(70,150,255), 1)
     
     if len(stationary_points_top)!=0 : 
         dist_top = 0
         cv2.circle(rectified_image, stationary_points_top[0], 2, (125, 125, 125), cv2.FILLED)
-        for i in range(1,len(stationary_points_top)):
-            cv2.circle(rectified_image, stationary_points_top[i], 2, (125, 125, 125), cv2.FILLED)
-            cv2.line(rectified_image, stationary_points_top[i-1],stationary_points_top[i], (125,125,125), 3)
-            dist_top += np.linalg.norm(np.array(stationary_points_top[i]) - np.array(stationary_points_top[i-1]))/ratiopxpermtr
+        for z in range(1,len(stationary_points_top)):
+            cv2.circle(rectified_image, stationary_points_top[z], 2, (125, 125, 125), cv2.FILLED)
+            cv2.line(rectified_image, stationary_points_top[z-1],stationary_points_top[z], (125,125,125), 3)
+            dist_top += np.linalg.norm(np.array(stationary_points_top[z]) - np.array(stationary_points_top[z-1]))/ratiopxpermtr
     
     dist_top= np.trunc(dist_top)
     cv2.putText(frame, "Top Player Distance : " + str(dist_top)+" m", (50,110), cv2.FONT_HERSHEY_SIMPLEX,0.5,(70,150,255), 1)
@@ -1379,25 +1395,25 @@ cap.release()
 result.release()
 cv2.destroyAllWindows()
 
-print("DETECTED POSITIONS")
-for l in ball_positions:
-    print(l)
+#print("DETECTED POSITIONS")
+#for l in ball_positions:
+#    print(l)
 
-if i < total_frames:
-    print("Execution stopped by user")
-    sys.exit()
+#if i < total_frames:
+#    print("Execution stopped by user")
+#    sys.exit()
 
 interpolated_samples = interpolate_missing_values(ball_positions)
-print("\nInterpolation:\n")
-for r in interpolated_samples:
-    print(f"FRAME: {r}")
-    print(f"--> {ball_positions[r]}")
+#print("\nInterpolation:\n")
+#for r in interpolated_samples:
+#    print(f"FRAME: {r}")
+#    print(f"--> {ball_positions[r]}")
 
 cap = cv2.VideoCapture("raw.mp4")
 
 result = cv2.VideoWriter('processed.mp4',
                          cv2.VideoWriter_fourcc(*'mp4v'),
-                         60, (image.shape[1] + rectified_image.shape[1], 720))
+                         vfps, (image.shape[1] + rectified_image.shape[1], 720))
 
 print("\nInterpolation Completed. Drawing...\n")
 
@@ -1448,11 +1464,13 @@ cap = cv2.VideoCapture("processed.mp4")
 
 result = cv2.VideoWriter('processed_winfo.mp4',
                          cv2.VideoWriter_fourcc(*'mp4v'),
-                         60, (image.shape[1] + rectified_image.shape[1], 720))
+                         vfps, (image.shape[1] + rectified_image.shape[1], 720))
 
 
 racket_hits, velocity = detect_racket_hits(ball_positions, rightwrist_positions_top, leftwrist_positions_top, rightwrist_positions_bot, leftwrist_positions_bot, height_values_top, height_values_bot)
-avg_ball_velocities = compute_avg_ballspeed(racket_hits, ball_positions, center_positions_top, center_positions_bot, frame_rate=vfps)
+avg_ball_velocities = compute_avg_ballspeed(racket_hits, homography_matrix, ball_positions, center_positions_top, center_positions_bot, frame_rate=vfps)
+for p in range(0, len(avg_ball_velocities)):
+    avg_ball_velocities[p] = avg_ball_velocities[p] / ratiopxpermtr
 print(avg_ball_velocities)
 
 print("Detected racket hits:", racket_hits)
@@ -1478,7 +1496,7 @@ while cv2.waitKey(1) < 0:
     text_rackethits = f"Racket Hits: {hits}"
     cv2.putText(frame, text_rackethits, (50, 250), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)   
     
-    if hits > 0 and avg_speed_index < len(avg_ball_velocities):
+    if hits > 0 and avg_speed_index <= len(avg_ball_velocities): #####
         hit_start = racket_hits[hits - 1]
         hit_end = racket_hits[hits] if hits < len(racket_hits) else total_frames
         
@@ -1487,7 +1505,8 @@ while cv2.waitKey(1) < 0:
         if j < midpoint:
             avg_speed_text = "Average ball speed: ..."
         else:
-            avg_speed_text = f"Average ball speed: {avg_ball_velocities[avg_speed_index - 1]:.2f}"
+            speed = avg_ball_velocities[avg_speed_index - 1] * 3.6
+            avg_speed_text = f"Average ball speed: {speed:.2f} km/h"
         
         cv2.putText(frame, avg_speed_text, (50, 300), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 0, 0), 2)
 
