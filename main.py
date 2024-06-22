@@ -26,10 +26,12 @@
 import sys
 import cv2
 import numpy as np
+import math as mth
 from scipy.interpolate import interp1d
 from scipy.signal import savgol_filter
 import matplotlib.pyplot as plt
 import threading
+import argparse
 #from mediapipe import solutions
 #from cv2 import cvtColor, COLOR_BGR2RGB, COLOR_RGB2BGR
 import mediapipe as mp
@@ -47,16 +49,11 @@ def computePoseAndAnkles(cropped_frame, static_centers_queue, mpPose, pose, mpDr
 
     imgRGB = cv2.cvtColor(cropped_frame, cv2.COLOR_BGR2RGB)
     results = pose.process(imgRGB)
-    #print(results.pose_landmarks)
     right_ankle, left_ankle = (0,0),(0,0)
     Pright_image, Pleft_image = (0,0),(0,0)
-    #global right_wrist # Required for Racket Hit detection
-    #global left_wrist # Required for Racket Hit detection
     
     head_y, _ , _ = cropped_frame.shape
     head_y *= 0.1 # By default, the difference between feet and head (height of the player) will be 1/10 of the height of the video [in pixels]
-    feet_y = 0
-    detected_height = head_y
 
     if results.pose_landmarks:
         mpDraw.draw_landmarks(cropped_frame, results.pose_landmarks, mpPose.POSE_CONNECTIONS)
@@ -178,22 +175,20 @@ def processBallTrajectory (BallDetector, frame, positions_stack):
 
     ball_detector.detect_ball(frame) # Detection of the ball
 
+    _ , framewidth, _ = frame.shape
+    scaler = framewidth / 1280
+    big_px_treshold = int(200 * scaler) #Default for 1280x720p is 200
+    small_px_treshold = int(100 * scaler) #Default for 1280x720p is 100
+
     # Valid Position Detected by the model
     if ball_detector.xy_coordinates[-1][0] is not None and ball_detector.xy_coordinates[-1][1] is not None:
         center_x = ball_detector.xy_coordinates[-1][0]
         center_y = ball_detector.xy_coordinates[-1][1]
         currpos = (center_x, center_y)
 
-        #if pos_counter < 3:
-        #    positions_stack.append(currpos)
-        #    prevpos = currpos
-        #    pos_counter += 1
-        #    return
-        #else: sequence = True
-
         # Head of sequence detected
         if pos_counter < 3: #pos_counter keeps track of the head of each non-zero sequence, to avoid worst-case scenarios where the first new sequence is a mistake by the deep learning model (e.g. detecting an ankle multiple times instead of the ball)
-            if not beginning and (abs(currpos[0]-lastvalidpos[0]) > 200 or abs(currpos[1]-lastvalidpos[1]) > 200): #If the ball wasn't detected last 3 frames (counter was put to 0) we check that the first value detected isn't an error (being 200 pixel off the last confirmed position). Here we avoid the beginning case, where every sample would have a big coordinate gap from any static "starting" value of lastvalidpos
+            if not beginning and (abs(currpos[0]-lastvalidpos[0]) > big_px_treshold or abs(currpos[1]-lastvalidpos[1]) > big_px_treshold): #If the ball wasn't detected last 3 frames (counter was put to 0) we check that the first value detected isn't an error (being 200 pixel off the last confirmed position). Here we avoid the beginning case, where every sample would have a big coordinate gap from any static "starting" value of lastvalidpos
                 positions_stack.append((0,0)) #If there's a big difference between the last valid position when beginning a new sequence, we append 0,0 to avoid appending wrong information to the ball position array
                 prevpos = (0,0)
                 pos_counter += 1
@@ -209,7 +204,7 @@ def processBallTrajectory (BallDetector, frame, positions_stack):
             beginning = False #After the first 3 valid samples we pass the beginning phase     
 
         # In-sequence processing
-        if (abs(currpos[0]-prevpos[0]) > 100 or abs(currpos[1]-prevpos[1]) > 100) and sequence : #Detection happens during a sequence, but with noise: we put a zero value to allow interpolation to best estimate it from neighbor samples
+        if (abs(currpos[0]-prevpos[0]) > small_px_treshold or abs(currpos[1]-prevpos[1]) > small_px_treshold) and sequence : #Detection happens during a sequence, but with noise: we put a zero value to allow interpolation to best estimate it from neighbor samples
             positions_stack.append((0,0))
             prevpos = (0,0)
             sequence = False
@@ -497,10 +492,12 @@ def get_clip_params(video_path):
     return total_frames, video_fps
 
 def interpolate_missing_values(coords):
-    jump = 5
-    interval = jump*2
+    global vfps
+    scaler_freq = vfps / 60
+
+    jump = 1 + mth.ceil(4*scaler_freq) # Default for 60FPS is 5 + 1 + 5 interval -> 11 entries to do interpolation
+    #interval = jump*2
     numofcoords = len(coords)
-    #print(f"\nTO INTERPOLATE ON: {numofcoords} coordinates")
     interpolated = []
 
     index = 0
@@ -512,57 +509,36 @@ def interpolate_missing_values(coords):
     oversampling = 0
     k = 0
     while index+jump+oversampling-1 < numofcoords:
-        #print(f"\nTO INTERPOLATE ON: {numofcoords} coordinates")
-        #print(f"\nINTERPOLATION LOOP {k}\n")
-        #print(f"Index: {index}\n")
-        #print(f"Oversampling: {oversampling}\n")
         
         k += 1
         subpositions = []
         for x in range(index-jump, index+jump+oversampling):
             subpositions.append(coords[x]) #interval array from coords -> ..........,[X,X,X,X,X,JUMP,X,X,X,X,OVERSAMPLING],............
 
-        #print(f"Length of subpos: {len(subpositions)}\n")
-
-        #for x in subpositions:
-        #    print(x)
-
         if all((item != (0,0)) for item in subpositions): #Skip if all values in interval exist already (no interpolation necessary)
             oversampling = 0
             index += jump
-            #print("\n--> ALL VALUES THERE\n")
             continue
 
         all_zeros = True
-        #print("\nsubposition considered:")
-        #for x in range(index, index+jump+oversampling):
-        #    print(subpositions[x-index])
 
         for h in range(index, index+jump+oversampling): #If all 5 new samples analyzed are null (interpolation might be imprecise), restart interval interpolation considering one more sample appended on the right
             if subpositions[h-index+jump] != (0,0):
-                #print("\nTrue value detected")
                 all_zeros = False
                 break
         if all_zeros:
             oversampling += 1
-            #print("\n--> TOO MANY ZEROS => OVERSAMPLING\n")
-            continue
+            continue 
         
 
         # Estraction of non-zero values to create interpolation function
         non_zero_coords = [(x, y) for x, y in subpositions if (x, y) != (0, 0)]
-        #zero_indices = [i for i, point in subpositions if point == (0, 0)]
         
         x_values = [x for x, _ in non_zero_coords]
         y_values = [y for _, y in non_zero_coords] 
 
-        #print("\nMARK 1")
-        #for c in non_zero_coords:
-        #    print(c)
-
         # Creation of time axis for the considered interval
         t_axis = []
-        #print("\nMARK 2")
         t_inst = 0
         lenghtsubpos = len(subpositions)
         while t_inst < lenghtsubpos:
@@ -577,10 +553,6 @@ def interpolate_missing_values(coords):
                 zero_indices.append(t_inst)    
             t_inst += 1
 
-        #print(f"Lent: {len(t_axis)}")
-        #print(f"Lenx: {len(x_values)}")
-        #print(f"Leny: {len(y_values)}")
-
         #Creation of function over x values
         x_interp_func = interp1d(t_axis, x_values, kind='slinear', fill_value='extrapolate') #spline interpolation function
 
@@ -592,9 +564,8 @@ def interpolate_missing_values(coords):
             x_interp_value = int(x_interp_func(i))
             y_interp_value = int(y_interp_func(i))
             coords[i+index-jump] = (x_interp_value, y_interp_value) 
-            #print(f"Result of interpolation: {x_interp_value}, {y_interp_value}\n")
         
-        for i in zero_indices: #Ottimizzabile
+        for i in zero_indices:
             if i+index-jump not in interpolated:
                 interpolated.append(i+index-jump)
 
@@ -603,143 +574,35 @@ def interpolate_missing_values(coords):
 
     return interpolated
 
-#def detect_racket_hits(ball_positions, tophead_positions, bottomhead_positions):
-#def detect_racket_hits(ball_positions, rightwrist_positions_top, leftwrist_positions_top, rightwrist_positions_bot, leftwrist_positions_bot, height_values_top, height_values_bot):
-    hits = []
-    window = 49
-    poly_order = 2
-
-    ball_positions_array = np.array(ball_positions)
-    y_positions = ball_positions_array[:, 1]
-    smoothed_y_positions = savgol_filter(y_positions, window, poly_order)
-
-    velocities = savgol_filter(y_positions, window, poly_order, deriv=1)  # Calcolo della derivata rispetto all'asse verticale
-    accelerations = np.gradient(velocities)
-
-    plotgraph(smoothed_y_positions, "Frame", "y Position", "pC.jpg")
-    plotgraph(velocities, "Frame", "y Velocity", "vC.jpg")
-    plotgraph(accelerations, "Frame", "y Accelerations", "aC.jpg")
-    #for i in range(3, len(ball_positions)-3):
-        #if (velocities[i] >= 0 and velocities[i-1] < 0) or (velocities[i] < 0 and velocities[i-1] >= 0):
-        #   if velocities[i+1] >= 0 and velocities[i-2] < 0 or velocities[i+1] < 0 and velocities[i-2] >= 0:
-        #        hits.append(i)
-
-    sign_changes = np.where(np.diff(np.sign(velocities)))[0]
-
-    for i in sign_changes:
-        print("Detected racket hit: ")
-        print(i)
-        for j in range(i-15, i+15):
-            if i+10 > len(ball_positions_array):
-                break
-            ball_pos = ball_positions_array[j]
-            
-            # Distanza dai polsi del giocatore in alto
-            dist_right_top = np.linalg.norm(ball_pos - np.array(rightwrist_positions_top[j]))
-            dist_left_top = np.linalg.norm(ball_pos - np.array(leftwrist_positions_top[j]))
-            
-            # Distanza dai polsi del giocatore in basso
-            dist_right_bot = np.linalg.norm(ball_pos - np.array(rightwrist_positions_bot[j]))
-            dist_left_bot = np.linalg.norm(ball_pos - np.array(leftwrist_positions_bot[j]))
-
-            if (dist_right_top < height_values_top[j]*10 or dist_left_top < height_values_top[j]*10 or
-                dist_right_bot < height_values_bot[j]*10 or dist_left_bot < height_values_bot[j]*10):
-                hits.append(j)
-                break
-
-    #print("GRADIENT ON Y:")
-    #print(velocities)
-    #print("DETECTED HITS")
-    #print(hits)
-    return hits, velocities
-
-########def detect_racket_hits(ball_positions, rightwrist_positions_top, leftwrist_positions_top, rightwrist_positions_bot, leftwrist_positions_bot, height_values_top, height_values_bot):
-    hits = []
-    window = 49
-    poly_order = 2
-    global res_height
-    global res_width
-
-    ball_positions_array = np.array(ball_positions)
-    y_positions = ball_positions_array[:, 1]
-    smoothed_y_positions = savgol_filter(y_positions, window, poly_order)
-
-    velocities = savgol_filter(y_positions, window, poly_order, deriv=1)  # Calcolo della derivata rispetto all'asse verticale
-    accelerations = np.gradient(velocities)
-
-    plotgraph(smoothed_y_positions, "Frame", "y Position", "pC.jpg")
-    plotgraph(velocities, "Frame", "y Velocity", "vC.jpg")
-    plotgraph(accelerations, "Frame", "y Accelerations", "aC.jpg")
-    #for i in range(3, len(ball_positions)-3):
-        #if (velocities[i] >= 0 and velocities[i-1] < 0) or (velocities[i] < 0 and velocities[i-1] >= 0):
-        #   if velocities[i+1] >= 0 and velocities[i-2] < 0 or velocities[i+1] < 0 and velocities[i-2] >= 0:
-        #        hits.append(i)
-    sign_changes = np.where(np.diff(np.sign(velocities)))[0]
-
-    window = 20
-    default_minimum_radius = 100 #pixel
-    radius_multiplier = 10
-    radiuses = [height_values_top[j]*radius_multiplier, height_values_bot[j]*radius_multiplier] #We consider as detection area the height of the player
-    for i in sign_changes:
-        print("Detected racket hit: ")
-        print(i)
-        append_flag = False
-        min_player_distance = float('inf')
-        frame_ball_closest_to_player = i
-
-        for j in range(max(0, i-window), min(len(ball_positions_array), i+window)):
-            if j >= len(ball_positions_array):  # Assicurarsi di non superare i limiti dell'array
-                break
-            ball_pos = ball_positions_array[j]
-            if np.array_equal(ball_pos, np.array([0, 0])):
-                break
-            
-            # Distanza dai polsi del giocatore in alto
-            dist_right_top = np.linalg.norm(ball_pos - np.array(rightwrist_positions_top[j]))
-            dist_left_top = np.linalg.norm(ball_pos - np.array(leftwrist_positions_top[j]))
-            
-            # Distanza dai polsi del giocatore in basso
-            dist_right_bot = np.linalg.norm(ball_pos - np.array(rightwrist_positions_bot[j]))
-            dist_left_bot = np.linalg.norm(ball_pos - np.array(leftwrist_positions_bot[j]))
-
-            if (dist_right_top < max(radiuses[0], default_minimum_radius) or dist_left_top < max(radiuses[0], default_minimum_radius) or
-                dist_right_bot < max(radiuses[1], default_minimum_radius) or dist_left_bot < max(radiuses[1], default_minimum_radius)):
-                append_flag = True
-                distances_min = min(dist_right_top, dist_left_top, dist_right_bot, dist_left_bot)
-                if distances_min < min_player_distance:
-                    min_player_distance = distances_min
-                    frame_ball_closest_to_player = j
-            
-        if append_flag:
-                hits.append(frame_ball_closest_to_player)
-
-    #print("GRADIENT ON Y:")
-    #print(velocities)
-    #print("DETECTED HITS")
-    #print(hits)
-    return hits, velocities
-
 def detect_racket_hits(ball_positions, rightwrist_positions_top, leftwrist_positions_top, rightwrist_positions_bot, leftwrist_positions_bot, height_values_top, height_values_bot):
     hits = []
-    window = 49
-    poly_order = 2
+    global vfps
+    scaler_freq = vfps / 60
+    global res_width
+    scaler_res = res_width / 1280 # Scaling the window wrt width or height doesn't matter as long as we're considering a screen ratio of 16:9
+
+    poly_order = 2 # Smoothing fitting degree
+    window = int(49*scaler_freq) # Smoothing window (Default for 60FPS is 49)
+    if (window %2) != 0: # Savgol filter requires an even window
+        window += 1 
 
     ball_positions_array = np.array(ball_positions)
     y_positions = ball_positions_array[:, 1]
-    smoothed_y_positions = savgol_filter(y_positions, window, poly_order)
+    smoothed_y_positions = savgol_filter(y_positions, window, poly_order) # Smoothing to avoid sudden gradient changes due to noise on y_position
 
-    velocities = savgol_filter(y_positions, window, poly_order, deriv=1)  # Calcolo della derivata rispetto all'asse verticale
+    velocities = savgol_filter(y_positions, window, poly_order, deriv=1)  # Vertical derivative on the smoothed function
     accelerations = np.gradient(velocities)
 
+    # Computation of utility graphs
     plotgraph(smoothed_y_positions, "Frame", "y Position", "pC.jpg")
     plotgraph(velocities, "Frame", "y Velocity", "vC.jpg")
-    plotgraph(accelerations, "Frame", "y Accelerations", "aC.jpg")
+    #plotgraph(accelerations, "Frame", "y Accelerations", "aC.jpg")
 
-    sign_changes = np.where(np.diff(np.sign(velocities)))[0]
+    sign_changes = np.where(np.diff(np.sign(velocities)))[0] # Derivative changes where we look for racket hits
 
-    window = 20
-    default_minimum_radius = 100 #pixel
-    radius_multiplier = 10
+    window_around_shot = int(20*scaler_freq) # Syncronization window to find the swing of the racket closest to the vertical derivative change (Default for 60FPS is 20)
+    default_minimum_radius = int(100*scaler_res) #Pixel minimum player distance considered (Default is 100 px for 720p clips)
+    radius_multiplier = 10 # Default multiplier that best fits the correct detection
     
     for i in sign_changes:
         append_flag = False
@@ -747,9 +610,9 @@ def detect_racket_hits(ball_positions, rightwrist_positions_top, leftwrist_posit
         max_wrist_velocity_sum = 0
         frame_ball_closest_to_player = i
 
-        for j in range(max(0, i - window), min(len(ball_positions_array), i + window)):
-            radiuses = [height_values_top[j] * radius_multiplier, height_values_bot[j] * radius_multiplier]  # We consider as detection area the height of the player
-            if j >= len(ball_positions_array):  # Assicurarsi di non superare i limiti dell'array
+        for j in range(max(0, i - window_around_shot), min(len(ball_positions_array), i + window_around_shot)):
+            radiuses = [height_values_top[j] * radius_multiplier, height_values_bot[j] * radius_multiplier]  # We consider as detection area the height of the player, which is already scaled on the frame resolution
+            if j >= len(ball_positions_array):
                 break
             ball_pos = ball_positions_array[j]
             if np.array_equal(ball_pos, np.array([0, 0])):
@@ -797,7 +660,7 @@ def compute_avg_ballspeed(racket_hits, hom_matrix, ball_positions, centers_top, 
         hit_start = racket_hits[k]
         hit_end = racket_hits[k + 1]
 
-        # Trova il centro più vicino alla palla al momento del primo colpo
+        # Find the closest player to the ball at the beginning of a 2 hit-exchange
         ball_pos_start = np.array(ball_positions[hit_start])
         center_top_start = np.array(centers_top[hit_start])
         center_bot_start = np.array(centers_bot[hit_start])
@@ -805,6 +668,7 @@ def compute_avg_ballspeed(racket_hits, hom_matrix, ball_positions, centers_top, 
         dist_top_start = np.linalg.norm(ball_pos_start - center_top_start)
         dist_bot_start = np.linalg.norm(ball_pos_start - center_bot_start)
         
+        print()
         print(f"Iteration {k}")
         print(f"hit_start: {hit_start}, hit_end: {hit_end}")
         print(f"ball_pos_start: {ball_pos_start}")
@@ -821,7 +685,7 @@ def compute_avg_ballspeed(racket_hits, hom_matrix, ball_positions, centers_top, 
             center_bot_real = np.array([[center_bot_real[0], center_bot_real[1]]], dtype=np.float32)
             center_bot_real = np.reshape(center_bot_real, (1,1,2))
             center_end = cv2.perspectiveTransform(center_bot_real, hom_matrix)
-            print("Using center_top_start and centers_bot for calculation.")
+            #print("Using center_top_start and centers_bot for calculation.")
         else:
             center_bot_real = (center_bot_start[0], center_bot_start[1], 0)
             center_bot_real = np.array([[center_bot_real[0], center_bot_real[1]]], dtype=np.float32)
@@ -832,18 +696,18 @@ def compute_avg_ballspeed(racket_hits, hom_matrix, ball_positions, centers_top, 
             center_tot_real = np.array([[center_tot_real[0], center_tot_real[1]]], dtype=np.float32)
             center_tot_real = np.reshape(center_tot_real, (1,1,2))
             center_end = cv2.perspectiveTransform(center_tot_real, hom_matrix)
-            print("Using center_bot_start and centers_top for calculation.")
+            #print("Using center_bot_start and centers_top for calculation.")
         
-        # Calcola la distanza in pixel tra i due centri
+        # Pixel distance between the real centers in the transformed perspective (real)
         distance = np.linalg.norm(center_start - center_end)
         print(f"center_start: {center_start}, center_end: {center_end}")
         print(f"Distance: {distance}")
         
-        # Calcola la differenza di tempo in secondi
+        # Time difference in seconds
         time_difference = (hit_end - hit_start) / frame_rate
         print(f"time_difference: {time_difference}")
         
-        # Calcola la velocità media
+        # Evaluate average speed of exchange
         if time_difference != 0:
             speed = distance / time_difference
         else:
@@ -956,138 +820,14 @@ def detect_cropped_frames(video_cap):
     #adding 5 to have tolerance
     return min_y_bot + 5, max_y_bot + 5, min_x_bot + 5 , max_x_bot + 5 , min_y_top + 5 , max_y_top + 5 , min_x_top + 5 , max_x_top + 5
 
-
-############################################################################################################
-####################################### TEST SECTION #######################################################
-
-# Step 1: Camera Calibration using DLT
-#def calibrate_camera(points_2d, points_3d):
-#    assert len(points_2d) == len(points_3d) and len(points_2d) >= 6
-#    A = []
-#    for i in range(len(points_2d)):
-#        X, Y, Z = points_3d[i]
-#        u, v = points_2d[i]
-#        A.append([X, Y, Z, 1, 0, 0, 0, 0, -u*X, -u*Y, -u*Z])
-#        A.append([0, 0, 0, 0, X, Y, Z, 1, -v*X, -v*Y, -v*Z])
-#    A = np.array(A)
-#    U, S, Vt = np.linalg.svd(A)
-#    P = Vt[-1].reshape(3, 4)
-#    return P
-
-def calibrate_camera(points_2d, points_3d):
-    assert len(points_2d) == len(points_3d) and len(points_2d) >= 6
-    A = []
-    for i in range(len(points_2d)):
-        X, Y, Z = points_3d[i]
-        u, v = points_2d[i]
-        A.append([X, Y, Z, 1, 0, 0, 0, 0, -u*X, -u*Y, -u*Z, -u])
-        A.append([0, 0, 0, 0, X, Y, Z, 1, -v*X, -v*Y, -v*Z, -v])
-    A = np.array(A)
-    U, S, Vt = np.linalg.svd(A)
-    P = Vt[-1].reshape(3, 4)
-    return P
-
-
-# Step 2: Map 2D points to 3D using the inverse projection matrix
-#def map_2d_to_3d(P, points_2d):
-#    points_3d = []
-#    P_inv = np.linalg.pinv(P)
-#    for u, v in points_2d:
-#        X, Y, Z, _ = P_inv @ np.array([u, v, 1])
-#        points_3d.append((X/Z, Y/Z, 1))
-#    return np.array(points_3d)
-
-def map_2d_to_3d(P, points_2d):
-    points_3d = []
-    P_inv = np.linalg.pinv(P)
-    for u, v in points_2d:
-        X, Y, Z, W = P_inv @ np.array([u, v, 1])
-        points_3d.append((X/W, Y/W, Z/W))
-    return np.array(points_3d)
-
-# Step 3: Initial trajectory estimation
-def estimate_trajectory(initial_position, initial_velocity, time, g=9.8):
-    X = initial_position[0] + time * initial_velocity[0]
-    Y = initial_position[1] + time * initial_velocity[1]
-    Z = initial_position[2] + time * initial_velocity[2] - 0.5 * g * time**2
-    return X, Y, Z
-
-# Step 4: Improved trajectory using geometric constraints
-def compute_trajectory(P, points_2d, initial_params, touch_points, w=1.0):
-    def cost_function(params):
-        initial_position = params[:3]
-        initial_velocity = params[3:]
-        F_classic = 0
-        F_touch = 0
-        for t, (u, v) in enumerate(points_2d):
-            X, Y, Z = estimate_trajectory(initial_position, initial_velocity, t)
-            u_proj, v_proj, _ = P @ np.array([X, Y, Z, 1])
-            u_proj /= u_proj[2]
-            v_proj /= v_proj[2]
-            F_classic += (u - u_proj[0])**2 + (v - v_proj[1])**2
-            if t in touch_points:  # Add touch point constraint
-                X_touch, Y_touch, Z_touch = compute_touch_point(P, u, v)
-                F_touch += (X - X_touch)**2 + (Y - Y_touch)**2 + (Z - Z_touch)**2
-        return F_classic + w * F_touch
-
-    result = minimize(cost_function, initial_params, method='L-BFGS-B')
-    return result.x
-
-# Auxiliary function to compute touch points
-def compute_touch_point(P, u, v):
-    # Assuming Z=0 for the court plane
-    A = np.array([
-        [P[0,0] - u*P[2,0], P[0,1] - u*P[2,1], P[0,2] - u*P[2,2]],
-        [P[1,0] - v*P[2,0], P[1,1] - v*P[2,1], P[1,2] - v*P[2,2]]
-    ])
-    b = np.array([u*P[2,3] - P[0,3], v*P[2,3] - P[1,3]])
-    X, Y, Z = np.linalg.lstsq(A, b, rcond=None)[0]
-    return X, Y, Z
-
 ##########################################################################################################
-##########################################################################################################
+############################################## MAIN ######################################################
 
-############################### MAIN ####################################
-
-# Field Dimensions (scaled)
-field_length_real = 23.78 #meters
-field_width_real = 10.97 #meters
-net_post_real = 1.07 #meters, height of the sides of the net
-
-scale_factor = 20 #pixel per meter (?)
-field_length = field_length_real * scale_factor
-field_width = field_width_real * scale_factor
-net_post = net_post_real * scale_factor
-
-# Field (x,y,z) relevant points
-#    3____________________________4
-#    |                            |
-#    |                            |
-#    |                            |
-#    |                            |
-#    |                            |
-#    |                            |
-#    |                            |
-#  2________________________________5
-#    |                            |
-#    |                            |
-#    |                            |
-#    |                            |
-#    |                            |
-#    |                            |
-#    |                            |
-#    1____________________________6
-# (X)
-# 
-# (X) is where the reference system is placed, so that point 1 is at x = 5 meters and y = 5 meters 
-
-reference_offset = (5,5,0) # offset between (X) and PT1
-field_pt1 = (reference_offset[1], reference_offset[2], 0)
-field_pt2 = (reference_offset[1] - 0.91, reference_offset[2] + 11.83, 1.07)
-field_pt3 = (reference_offset[1], reference_offset[2] + 23.78, 0)
-field_pt4 = (reference_offset[1] + 10.97, reference_offset[2] + 23.78, 0)
-field_pt5 = (reference_offset[1] + 10.97 + 0.91, reference_offset[2] + 11.83, 1.07)
-field_pt6 = (reference_offset[1] + 10.97, reference_offset[2], 0)
+# Commandline Parser
+parser = argparse.ArgumentParser(description="Tennis clip processing tool - Riva, Grecu, Stasi")
+parser.add_argument('video_path', type=str, help="Clip to be accepted for processing in .mp4 format")
+args = parser.parse_args()
+video_path = args.video_path
 
 # Load an image
 image_path = "resources/frame.JPG"
@@ -1143,10 +883,51 @@ prev_PrightB_image =[0,0]
 
 # Loading of the clip to analyze
 #video_path = "resources/tennis2full.mp4"
-video_path = "resources/tennis2full.mp4"
+#video_path = "resources/tennis2full.mp4"
 total_frames, vfps = get_clip_params(video_path)
 cap = cv2.VideoCapture(video_path)
 
+########### Data to compute 3D transformation, unused #############
+# Field Dimensions (scaled)
+field_length_real = 23.78 #meters
+field_width_real = 10.97 #meters
+net_post_real = 1.07 #meters, height of the sides of the net
+
+scale_factor = 20 #pixel per meter (?)
+field_length = field_length_real * scale_factor
+field_width = field_width_real * scale_factor
+net_post = net_post_real * scale_factor
+
+# Field (x,y,z) relevant points
+#    3____________________________4
+#    |                            |
+#    |                            |
+#    |                            |
+#    |                            |
+#    |                            |
+#    |                            |
+#    |                            |
+#  2________________________________5
+#    |                            |
+#    |                            |
+#    |                            |
+#    |                            |
+#    |                            |
+#    |                            |
+#    |                            |
+#    1____________________________6
+# (X)
+# 
+# (X) is where the reference system is placed, so that point 1 is at x = 5 meters and y = 5 meters 
+
+reference_offset = (5,5,0) # offset between (X) and PT1
+field_pt1 = (reference_offset[1], reference_offset[2], 0)
+field_pt2 = (reference_offset[1] - 0.91, reference_offset[2] + 11.83, 1.07)
+field_pt3 = (reference_offset[1], reference_offset[2] + 23.78, 0)
+field_pt4 = (reference_offset[1] + 10.97, reference_offset[2] + 23.78, 0)
+field_pt5 = (reference_offset[1] + 10.97 + 0.91, reference_offset[2] + 11.83, 1.07)
+field_pt6 = (reference_offset[1] + 10.97, reference_offset[2], 0)
+######################################################################
 
 # Calculate homography taking the first frame of the video
 #field_points_2D = []
@@ -1195,55 +976,14 @@ res_height = 0
 res_width = 0
 rect_height = 0
 
+processing_times = []
+avg_processing_time = 0
+max_processing_time = 0
+min_processing_time = float('inf')
+
 min_y_bot_pl, max_y_bot_pl, min_x_bot_pl, max_x_bot_pl, min_y_top_pl, max_y_top_pl, min_x_top_pl, max_x_top_pl = detect_cropped_frames(cap)
 
 cap = cv2.VideoCapture(video_path)
-
-##################################################################################################################################
-##################################### Calibration and 3D Estimation Test  ########################################################
-
-#selected = select_points(image_path)
-#print(selected)
-
-#reference_offset = (5, 5, 0)  # offset between (X) and PT1
-#field_pt1 = (reference_offset[1], reference_offset[2], 0)
-#field_pt2 = (reference_offset[1] - 0.91, reference_offset[2] + 11.83, 1.07)
-#field_pt3 = (reference_offset[1], reference_offset[2] + 23.78, 0)
-#field_pt4 = (reference_offset[1] + 10.97, reference_offset[2] + 23.78, 0)
-#field_pt5 = (reference_offset[1] + 10.97 + 0.91, reference_offset[2] + 11.83, 1.07)
-#field_pt6 = (reference_offset[1] + 10.97, reference_offset[2], 0)
-
-#points_2d = np.array([
-#    [field_points_2D[3][0], field_points_2D[3][1]], 
-#    selected[0], 
-#    [field_points_2D[0][0], field_points_2D[0][1]], 
-#    [field_points_2D[1][0], field_points_2D[1][1]], 
-#    selected[1], 
-#    [field_points_2D[2][0], field_points_2D[2][1]]
-#])
-
-#points_3d = np.array([field_pt1, field_pt2, field_pt3, field_pt4, field_pt5, field_pt6])
-
-# Step 1: Calibrate the camera
-#P = calibrate_camera(points_2d, points_3d)
-
-# Step 2: Map 2D ball coordinates to 3D
-#ball_2d_coords = [(490, 200), (495, 205)]  # 2D coordinates of the ball from video frames
-#ball_3d_coords = map_2d_to_3d(P, ball_2d_coords)
-
-# Step 3: Estimate the trajectory
-#initial_params = [0, 0, 2, 30, 0, 10]  # Initial guess for position and velocity (2 meters height of the ball, 30m/s on x and 10 m/s on z)
-#touch_points = {0: (0, 2.47, 0), 10: (1.525, 2.47, 0)}  # Example touch points
-#touch_points = {}
-
-#trajectory_params = compute_trajectory(P, ball_2d_coords, initial_params, touch_points)
-
-# Extract and print top view coordinates (X, Y)
-#for t in range(len(ball_2d_coords)):
-#    X, Y, Z = estimate_trajectory(trajectory_params[:3], trajectory_params[3:], t)
-#    print(f"Top view coordinates at t={t}: X={X}, Y={Y}")
-
-######################################################################################################################################################
 
 # First Main Loop
 print("\nBall positions detected:")
@@ -1324,6 +1064,12 @@ while cv2.waitKey(1) < 0:
     diff_time = (pTime-cTime)*1000
     ms_string = f"Processing period = {diff_time:.2f} ms"
     print(ms_string)
+
+    processing_times.append(diff_time)
+    if diff_time > max_processing_time: 
+        max_processing_time = diff_time
+    if diff_time < min_processing_time:
+        min_processing_time = diff_time
 
     fps = 1/(pTime-cTime)
     
@@ -1512,6 +1258,17 @@ while cv2.waitKey(1) < 0:
 
     result.write(frame)
     j += 1
+
+plotgraph(processing_times, "Frame", "Process time [ms]", "processtimes.jpg")
+avg_processing_time = np.mean(processing_times)
+total_time = np.sum(processing_times) / 1000
+statistics_1 = f"Total processing time: {total_time:.2f} s"
+statistics_2 = f"Average processing time: {avg_processing_time:.2f} ms/frame"
+statistics_3 = f"Max: {max_processing_time:.2f} ms - Min: {min_processing_time:.2f} ms"
+
+print(statistics_1)
+print(statistics_2)
+print(statistics_3)
 
 cap.release()
 result.release()
