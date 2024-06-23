@@ -1,13 +1,5 @@
 # IACV-project
-  _____          _______      __  _____           _           _   
- |_   _|   /\   / ____\ \    / / |  __ \         (_)         | |  
-   | |    /  \ | |     \ \  / /  | |__) | __ ___  _  ___  ___| |_ 
-   | |   / /\ \| |      \ \/ /   |  ___/ '__/ _ \| |/ _ \/ __| __|
-  _| |_ / ____ \ |____   \  /    | |   | | | (_) | |  __/ (__| |_ 
- |_____/_/    \_\_____|   \/     |_|   |_|  \___/| |\___|\___|\__|
-                                                _/ |              
-                                               |__/               
- 
+
  Project developed by Paolo Riva, Michelangelo Stasi, Mihai-Viorel Grecu c/o Politecnico di Milano
  Course: Image Analysis and Computer Vison - A.A. 2023/24
  This Computer Vision project aims at detecting data in a tennis match through the widely-used Human Pose Detection method and the TRACE methon for ball detection.
