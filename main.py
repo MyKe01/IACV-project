@@ -773,42 +773,48 @@ def detect_cropped_frames(video_cap):
         # Perform object detection on the video frame.
         detection_result = detector.detect_for_video(mp_image, int(frame_timestamp_ms))
         detection_result = playerDetection.filterDetections(width/2, detection_result)
+        if (len(detection_result)!=0) :
+            final_det = []
+            # assigning to each player his detection
+            for det in detection_result: 
+                bbox = det.bounding_box
+                y = bbox.origin_y
+                if y < height/2 : 
+                    det_top = det 
+                else :
+                    det_bot = det
 
-        # assigning to each player his detection
-        for det in detection_result: 
-            bbox = det.bounding_box
-            y = bbox.origin_y
-            if y < height/2 : 
-                det_top = det 
-            else :
-                det_bot = det
+            # Eliminating detection out of threshold - should be optimized by interpolation
+            if det_top_prev == None or abs(det_top.bounding_box.origin_x - det_top_prev.bounding_box.origin_x) < threshold :
+                det_top_prev = det_top
+            if det_bot_prev == None or abs(det_bot.bounding_box.origin_x - det_bot_prev.bounding_box.origin_x) < threshold :
+                det_bot_prev = det_bot
 
-        # Eliminating detection out of threshold - should be optimized by interpolation
-        if det_top_prev == None or abs(det_top.bounding_box.origin_x - det_top_prev.bounding_box.origin_x) < threshold :
-            det_top_prev = det_top
-        if det_bot_prev == None or abs(det_bot.bounding_box.origin_x - det_bot_prev.bounding_box.origin_x) < threshold :
-            det_bot_prev = det_bot
+            if(det_top_prev != None) :
 
-        if min_y_top is None or min_y_top > det_top_prev.bounding_box.origin_y : 
-            min_y_top = det_top_prev.bounding_box.origin_y
-        if max_y_top is None or max_y_top < det_top_prev.bounding_box.origin_y + det_top_prev.bounding_box.height : 
-            max_y_top = det_top_prev.bounding_box.origin_y + det_top_prev.bounding_box.height
-        if min_x_top is None or min_x_top > det_top_prev.bounding_box.origin_x : 
-            min_x_top = det_top_prev.bounding_box.origin_x
-        if max_x_top is None or max_x_top < det_top_prev.bounding_box.origin_x + det_top_prev.bounding_box.width: 
-            max_x_top = det_top_prev.bounding_box.origin_x+ det_top_prev.bounding_box.width
+                if min_y_top is None or min_y_top > det_top_prev.bounding_box.origin_y : 
+                    min_y_top = det_top_prev.bounding_box.origin_y
+                if max_y_top is None or max_y_top < det_top_prev.bounding_box.origin_y + det_top_prev.bounding_box.height : 
+                    max_y_top = det_top_prev.bounding_box.origin_y + det_top_prev.bounding_box.height
+                if min_x_top is None or min_x_top > det_top_prev.bounding_box.origin_x : 
+                    min_x_top = det_top_prev.bounding_box.origin_x
+                if max_x_top is None or max_x_top < det_top_prev.bounding_box.origin_x + det_top_prev.bounding_box.width: 
+                    max_x_top = det_top_prev.bounding_box.origin_x+ det_top_prev.bounding_box.width
+                
+                final_det.append(det_top_prev)
+            
+            if(det_bot_prev != None) :
+                if min_y_bot is None or min_y_bot > det_bot_prev.bounding_box.origin_y : 
+                    min_y_bot = det_bot_prev.bounding_box.origin_y
+                if max_y_bot is None or max_y_bot < det_bot_prev.bounding_box.origin_y + det_bot_prev.bounding_box.height :
+                    max_y_bot = det_bot_prev.bounding_box.origin_y + det_bot_prev.bounding_box.height
+                if min_x_bot is None or min_x_bot > det_bot_prev.bounding_box.origin_x : 
+                    min_x_bot = det_bot_prev.bounding_box.origin_x
+                if max_x_bot is None or max_x_bot < det_bot_prev.bounding_box.origin_x + det_bot_prev.bounding_box.width: 
+                    max_x_bot = det_bot_prev.bounding_box.origin_x+ det_bot_prev.bounding_box.width
+                final_det.append(det_bot_prev)
 
-        if min_y_bot is None or min_y_bot > det_bot_prev.bounding_box.origin_y : 
-            min_y_bot = det_bot_prev.bounding_box.origin_y
-        if max_y_bot is None or max_y_bot < det_bot_prev.bounding_box.origin_y + det_bot_prev.bounding_box.height :
-            max_y_bot = det_bot_prev.bounding_box.origin_y + det_bot_prev.bounding_box.height
-        if min_x_bot is None or min_x_bot > det_bot_prev.bounding_box.origin_x : 
-            min_x_bot = det_bot_prev.bounding_box.origin_x
-        if max_x_bot is None or max_x_bot < det_bot_prev.bounding_box.origin_x + det_bot_prev.bounding_box.width: 
-            max_x_bot = det_bot_prev.bounding_box.origin_x+ det_bot_prev.bounding_box.width
-
-        final_det = [det_top_prev, det_bot_prev]
-        playerDetection.visualize(frame, final_det)
+            playerDetection.visualize(frame, final_det)
         cv2.imshow("Title", frame)
 
         # Increment frame index for the next iteration
@@ -828,11 +834,6 @@ parser = argparse.ArgumentParser(description="Tennis clip processing tool - Riva
 parser.add_argument('video_path', type=str, help="Clip to be accepted for processing in .mp4 format")
 args = parser.parse_args()
 video_path = args.video_path
-
-# Load an image
-image_path = "resources/frame.JPG"
-image = cv2.imread(image_path)
-image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB) #set the color from BGR to RGB
 
 ###### Ball trajectory util
 # Buffers to use as queues in threads
@@ -893,7 +894,7 @@ field_length_real = 23.78 #meters
 field_width_real = 10.97 #meters
 net_post_real = 1.07 #meters, height of the sides of the net
 
-scale_factor = 20 #pixel per meter (?)
+scale_factor = 20 
 field_length = field_length_real * scale_factor
 field_width = field_width_real * scale_factor
 net_post = net_post_real * scale_factor
@@ -951,12 +952,19 @@ mpDraw_B = mp.solutions.drawing_utils
 stationary_points_bot = list()
 stationary_points_top = list()
 
-image = cv2.imread(image_path)
-image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB) #set the color from BGR to RGB
-
-#Rectifying the image using the homography matrix found previously
-#changing the rectified image to "clean" it from the previous drawings of the center
-rectified_image = cv2.warpPerspective(image, homography_matrix, (image.shape[1], image.shape[0]))
+hasFrame, frame = cap.read()
+if hasFrame : 
+    image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB) #set the color from BGR to RGB
+    
+    #Rectifying the image using the homography matrix found previously
+    #changing the rectified image to "clean" it from the previous drawings of the center
+    rectified_image = cv2.warpPerspective(image, homography_matrix, (image.shape[1], image.shape[0]))
+    # testing purpose to see the rectified image 
+    #cv2.imshow("Rect_img", rectified_image)
+    #cv2.waitKeyEx(100000)
+else : 
+    print("ERROR - no frame found")
+    quit(-1)
 
 # Allocation to write the resulting evaluation in a video file at the end
 # Maybe width has to be changed : TODO
@@ -1015,7 +1023,7 @@ while cv2.waitKey(1) < 0:
     #autoComputeHomography(cap, frame, NtopLeftP, NtopRightP, NbottomLeftP, NbottomRightP)
     #changing the rectified image to "clean" it from the previous drawings of the center
     rectified_image = cv2.warpPerspective(image, homography_matrix, (image.shape[1], image.shape[0]))
-
+    
     cropped_frame_top = frame[min_y_top_pl:max_y_top_pl, min_x_top_pl:max_x_top_pl].copy()
     cropped_frame_bot = frame[min_y_bot_pl:max_y_bot_pl, min_x_bot_pl:max_x_bot_pl].copy()
     
