@@ -574,7 +574,7 @@ def interpolate_missing_values(coords):
 
     return interpolated
 
-def detect_racket_hits(ball_positions, rightwrist_positions_top, leftwrist_positions_top, rightwrist_positions_bot, leftwrist_positions_bot, height_values_top, height_values_bot):
+#def detect_racket_hits(ball_positions, rightwrist_positions_top, leftwrist_positions_top, rightwrist_positions_bot, leftwrist_positions_bot, height_values_top, height_values_bot):
     hits = []
     global vfps
     scaler_freq = vfps / 60
@@ -586,19 +586,37 @@ def detect_racket_hits(ball_positions, rightwrist_positions_top, leftwrist_posit
     if (window %2) != 0: # Savgol filter requires an even window
         window += 1 
 
+   
+
     ball_positions_array = np.array(ball_positions)
+    x_positions = ball_positions_array [1, :]
+    smoothed_x_positions = savgol_filter(x_positions, window, poly_order) # Smoothing to avoid sudden gradient changes due to noise on y_position
+
     y_positions = ball_positions_array[:, 1]
     smoothed_y_positions = savgol_filter(y_positions, window, poly_order) # Smoothing to avoid sudden gradient changes due to noise on y_position
 
-    velocities = savgol_filter(y_positions, window, poly_order, deriv=1)  # Vertical derivative on the smoothed function
-    accelerations = np.gradient(velocities)
+    
+    velocities_x = savgol_filter(x_positions, window, poly_order, deriv=1)  # Horizontal derivative on the smoothed function
+    velocities_y = savgol_filter(y_positions, window, poly_order, deriv=1)  # Vertical derivative on the smoothed function
+    
+    
+    #accelerations = np.gradient(velocities)
+
+
+
+
+
+
+
+
+
 
     # Computation of utility graphs
     plotgraph(smoothed_y_positions, "Frame", "y Position", "pC.jpg")
-    plotgraph(velocities, "Frame", "y Velocity", "vC.jpg")
+    plotgraph(velocities_y, "Frame", "y Velocity", "vC.jpg")
     #plotgraph(accelerations, "Frame", "y Accelerations", "aC.jpg")
 
-    sign_changes = np.where(np.diff(np.sign(velocities)))[0] # Derivative changes where we look for racket hits
+    sign_changes = np.where(np.diff(np.sign(velocities_y)))[0] # Derivative changes where we look for racket hits
 
     window_around_shot = int(20*scaler_freq) # Syncronization window to find the swing of the racket closest to the vertical derivative change (Default for 60FPS is 20)
     default_minimum_radius = int(100*scaler_res) #Pixel minimum player distance considered (Default is 100 px for 720p clips)
@@ -651,7 +669,92 @@ def detect_racket_hits(ball_positions, rightwrist_positions_top, leftwrist_posit
         if append_flag:
             hits.append(frame_ball_closest_to_player)
 
-    return hits, velocities
+    return hits, velocities_y
+
+#def detect_racket_hits_gradient(ball_positions, rightwrist_positions_top, leftwrist_positions_top, rightwrist_positions_bot, leftwrist_positions_bot, height_values_top, height_values_bot):
+    hits = []
+    global vfps
+    scaler_freq = vfps / 60
+    global res_width
+    scaler_res = res_width / 1280
+
+    poly_order = 2  # Smoothing fitting degree
+    window = int(49 * scaler_freq)  # Smoothing window
+    if (window % 2) != 0:  # Savgol filter requires an odd window
+        window += 1
+
+    ball_positions_array = np.array(ball_positions)
+    x_positions = ball_positions_array[:, 0]
+    y_positions = ball_positions_array[:, 1]
+
+    # Smoothing the position data
+    smoothed_x_positions = savgol_filter(x_positions, window, poly_order)
+    smoothed_y_positions = savgol_filter(y_positions, window, poly_order)
+
+    # Compute velocities in x and y directions
+    acc_x = savgol_filter(smoothed_x_positions, window, poly_order, deriv=2)
+    acc_y = savgol_filter(smoothed_y_positions, window, poly_order, deriv=2)
+
+    acc_gradient = np.array([acc_x, acc_y])
+    # Compute the magnitude of the velocity vector
+    #velocities_magnitude = np.sqrt(velocities_x**2 + velocities_y**2)
+
+    # Compute accelerations (second derivative) if needed
+    # accelerations_x = savgol_filter(smoothed_x_positions, window, poly_order, deriv=2)
+    # accelerations_y = savgol_filter(smoothed_y_positions, window, poly_order, deriv=2)
+    # accelerations_magnitude = np.sqrt(accelerations_x**2 + accelerations_y**2)
+
+    # Detecting sign changes in the velocity magnitude
+    sign_changes = np.where(np.diff(np.sign(acc_gradient)))[0]
+
+    window_around_shot = int(20 * scaler_freq)
+    default_minimum_radius = int(100 * scaler_res)
+    radius_multiplier = 10
+
+    for i in sign_changes:
+        append_flag = False
+        min_player_distance = float('inf')
+        max_wrist_velocity_sum = 0
+        frame_ball_closest_to_player = i
+
+        for j in range(max(0, i - window_around_shot), min(len(ball_positions_array), i + window_around_shot)):
+            radiuses = [height_values_top[j] * radius_multiplier, height_values_bot[j] * radius_multiplier]
+            if j >= len(ball_positions_array):
+                break
+            ball_pos = ball_positions_array[j]
+            if np.array_equal(ball_pos, np.array([0, 0])):
+                break
+
+            dist_right_top = np.linalg.norm(ball_pos - np.array(rightwrist_positions_top[j]))
+            dist_left_top = np.linalg.norm(ball_pos - np.array(leftwrist_positions_top[j]))
+            dist_right_bot = np.linalg.norm(ball_pos - np.array(rightwrist_positions_bot[j]))
+            dist_left_bot = np.linalg.norm(ball_pos - np.array(leftwrist_positions_bot[j]))
+
+            if (dist_right_top < max(radiuses[0], default_minimum_radius) or dist_left_top < max(radiuses[0], default_minimum_radius) or
+                dist_right_bot < max(radiuses[1], default_minimum_radius) or dist_left_bot < max(radiuses[1], default_minimum_radius)):
+                
+                if j > 0:
+                    wrist_velocity_right_top = np.linalg.norm(np.array(rightwrist_positions_top[j]) - np.array(rightwrist_positions_top[j - 1]))
+                    wrist_velocity_left_top = np.linalg.norm(np.array(leftwrist_positions_top[j]) - np.array(leftwrist_positions_top[j - 1]))
+                    wrist_velocity_right_bot = np.linalg.norm(np.array(rightwrist_positions_bot[j]) - np.array(rightwrist_positions_bot[j - 1]))
+                    wrist_velocity_left_bot = np.linalg.norm(np.array(leftwrist_positions_bot[j]) - np.array(leftwrist_positions_bot[j - 1]))
+                    
+                    wrist_velocity_sum = wrist_velocity_right_top + wrist_velocity_left_top + wrist_velocity_right_bot + wrist_velocity_left_bot
+
+                    if wrist_velocity_sum > max_wrist_velocity_sum:
+                        max_wrist_velocity_sum = wrist_velocity_sum
+                        frame_ball_closest_to_player = j
+                
+                append_flag = True
+                distances_min = min(dist_right_top, dist_left_top, dist_right_bot, dist_left_bot)
+                if distances_min < min_player_distance:
+                    min_player_distance = distances_min
+                    frame_ball_closest_to_player = j
+
+        if append_flag:
+            hits.append(frame_ball_closest_to_player)
+
+    return hits, velocities_magnitude
 
 def compute_avg_ballspeed(racket_hits, hom_matrix, ball_positions, centers_top, centers_bot, frame_rate=30):
     speeds = []
@@ -1221,6 +1324,75 @@ result = cv2.VideoWriter('processed_winfo.mp4',
                          vfps, (image.shape[1] + rectified_image.shape[1], 720))
 
 
+poly_order = 2  # Smoothing fitting degree
+window = 49  # Smoothing window
+if (window % 2) != 0:  # Savgol filter requires an odd window
+    window += 1
+
+
+ball_positions_array = np.array(ball_positions)
+x_positions = ball_positions_array[:, 0]
+y_positions = ball_positions_array[:, 1]
+
+# Smoothing the position data
+smoothed_x_positions = savgol_filter(x_positions, window, poly_order)
+smoothed_y_positions = savgol_filter(y_positions, window, poly_order)
+
+# Compute velocities in x and y directions
+acc_x = savgol_filter(smoothed_x_positions, window, poly_order, deriv=2)
+acc_y = savgol_filter(smoothed_y_positions, window, poly_order, deriv=2)
+
+acc_gradient = np.array([acc_x, acc_y])
+
+print("Testing Gradient...")
+j = 0
+avg_speed_index = 0
+hits = 0
+while cv2.waitKey(1) < 0:
+    
+    hasFrame, frame = cap.read()
+    if not hasFrame:
+        break
+    
+    percent = j / total_frames * 100
+    print(f"{percent:.1f}%")
+
+    # Get the current ball position (assuming the ball positions are in pixel coordinates)
+    ball_pos = ball_positions_array[j]  # ball_pos should be in the format [x, y]
+
+    # Get the current acceleration vector
+    acc_vector = acc_gradient[j]  # acc_vector is [acc_x, acc_y]
+
+    # Scaling the acceleration vector for visualization (you can adjust the scaling factor)
+    scaling_factor = 50
+    acc_vector_scaled = acc_vector * scaling_factor
+
+    # Calculate the end point of the arrow (start is the ball position)
+    arrow_end = (int(ball_pos[0] + acc_vector_scaled[0]), int(ball_pos[1] + acc_vector_scaled[1]))
+
+    # Draw a red arrow from the ball position to the end point based on the acceleration vector
+    cv2.arrowedLine(frame, 
+                    (int(ball_pos[0]), int(ball_pos[1])),  # Start point (current ball position)
+                    arrow_end,                             # End point (scaled acceleration vector)
+                    (0, 0, 255),                           # Red color in BGR
+                    2,                                     # Thickness
+                    tipLength=0.5)                         # Length of the arrow tip
+
+    # Optionally display the x and y acceleration values on the screen
+    accx = f"X acc: {acc_vector[0]:.2f}"
+    cv2.putText(frame, accx, (50, 150), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2)
+
+    accy = f"Y acc: {acc_vector[1]:.2f}"
+    cv2.putText(frame, accy, (50, 200), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2)
+
+    # Display the frame with the arrow
+    cv2.imshow("Frame with Acceleration Arrow", frame)
+    
+    j += 1
+    if j >= len(ball_positions_array):
+        break
+
+"""""""""
 racket_hits, velocity = detect_racket_hits(ball_positions, rightwrist_positions_top, leftwrist_positions_top, rightwrist_positions_bot, leftwrist_positions_bot, height_values_top, height_values_bot)
 avg_ball_velocities = compute_avg_ballspeed(racket_hits, homography_matrix, ball_positions, center_positions_top, center_positions_bot, frame_rate=vfps)
 for p in range(0, len(avg_ball_velocities)):
@@ -1266,7 +1438,7 @@ while cv2.waitKey(1) < 0:
 
     result.write(frame)
     j += 1
-
+"""
 plotgraph(processing_times, "Frame", "Process time [ms]", "processtimes.jpg")
 avg_processing_time = np.mean(processing_times)
 total_time = np.sum(processing_times) / 1000
