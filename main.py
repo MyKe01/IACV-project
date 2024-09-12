@@ -574,7 +574,7 @@ def interpolate_missing_values(coords):
 
     return interpolated
 
-#def detect_racket_hits(ball_positions, rightwrist_positions_top, leftwrist_positions_top, rightwrist_positions_bot, leftwrist_positions_bot, height_values_top, height_values_bot):
+def detect_racket_hits(ball_positions, rightwrist_positions_top, leftwrist_positions_top, rightwrist_positions_bot, leftwrist_positions_bot, height_values_top, height_values_bot):
     hits = []
     global vfps
     scaler_freq = vfps / 60
@@ -671,7 +671,7 @@ def interpolate_missing_values(coords):
 
     return hits, velocities_y
 
-#def detect_racket_hits_gradient(ball_positions, rightwrist_positions_top, leftwrist_positions_top, rightwrist_positions_bot, leftwrist_positions_bot, height_values_top, height_values_bot):
+def detect_racket_hits_gradient(ball_positions, rightwrist_positions_top, leftwrist_positions_top, rightwrist_positions_bot, leftwrist_positions_bot, height_values_top, height_values_bot):
     hits = []
     global vfps
     scaler_freq = vfps / 60
@@ -1361,7 +1361,8 @@ while cv2.waitKey(1) < 0:
     ball_pos = ball_positions_array[j]  # ball_pos should be in the format [x, y]
 
     # Get the current acceleration vector
-    acc_vector = acc_gradient[j]  # acc_vector is [acc_x, acc_y]
+    #acc_vector = acc_gradient[j]  # acc_vector is [acc_x, acc_y]
+    acc_vector = np.array([acc_x[j], acc_y[j]])  # acc_vector is [acc_x, acc_y]
 
     # Scaling the acceleration vector for visualization (you can adjust the scaling factor)
     scaling_factor = 50
@@ -1388,6 +1389,7 @@ while cv2.waitKey(1) < 0:
     # Display the frame with the arrow
     cv2.imshow("Frame with Acceleration Arrow", frame)
     
+    result.write(frame)
     j += 1
     if j >= len(ball_positions_array):
         break
